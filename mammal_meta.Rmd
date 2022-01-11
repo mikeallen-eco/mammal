@@ -1,0 +1,74 @@
+---
+title: "NJ mammal metabarcoding"
+author: "Mike Allen"
+date: "1/11/2022"
+output: html_document
+---
+
+# Load libraries and data formatting
+
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+'%notin%' <- Negate('%in%')
+
+m_raw <- 
+  readxl::read_xlsx("data/Max_0.8_fullOTU_resultstable_final.xlsx")
+
+m <- m_raw %>%
+  select(species = Species, starts_with("sample")) %>%
+  mutate(species2 = species,
+         species = case_when(substr(species2, 1, 9) == 
+                               "Sciurus c" ~ 
+                               "Sciurus carolinensis",
+                              substr(species2, 1, 9) == 
+                               "Scuirus c" ~ 
+                               "Sciurus carolinensis",
+                              substr(species2, 1, 9) == 
+                               "Scuirius " ~ 
+                               "Sciurus carolinensis",
+                              substr(species2, 1, 9) == 
+                               "Sciurius " ~ 
+                               "Sciurus carolinensis",
+                             species2 == "Scuirus niger" ~
+                               "Sciurus carolinensis",
+                             TRUE ~ species2)) %>%
+  filter(species %notin% c("Sus scrofa", "Canis lupus familiares",
+                           "Bos taurus", "Sus scrofa:domesticus")) %>%
+  select(-species2) %>%
+  group_by(species) %>%
+  summarize_all(sum) %>%
+  arrange(species)
+  
+m_flip <- m %>%
+  t() %>%
+  as.data.frame()
+m_flip$sample <- rownames(m_flip)
+
+# create all the sample names
+roller_samples1 <-
+  lapply(1:3, function(x)
+    paste0("sample:R0", 1:9, LETTERS[x]))
+roller_samples2 <-
+  lapply(1:3, function(x)
+    paste0("sample:R", 10:21, LETTERS[x]))
+
+r <- data.frame(sample = c(do.call(c, roller_samples1),
+                    do.call(c, roller_samples2))) %>%
+  arrange(sample) %>%
+  left_join(m_flip[2:33,], by = "sample") %>%
+  replace(is.na(.), 0) %>%
+  mutate(tree = substr(sample, 8, 10),
+         visit = substr(sample, 11, 11)) %>%
+  select(tree, visit, 2:12, -sample)
+colnames(r) <-
+  c("tree", "visit", 
+    gsub(m$species, pattern = " ", replacement = "_"))
+
+
+                  
+
+```
+

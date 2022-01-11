@@ -1,0 +1,361 @@
+```{r}
+library(tidyverse)
+```
+
+# function to simulate bat data in multimethod occupancy format
+```{r}
+simbats <- function(n.trees = 15, n.visits = 2, p.d = c(0.65, .5, .35), n.methods = 3){
+
+n.trees = n.trees
+n.visits = n.visits
+n.methods = n.methods
+
+# create roost trees that are presumably positive
+z = rbinom(n = n.trees*n.visits, 1, p = 1) # true pres & availability visits 1 & 2
+
+# take samples
+y = list()
+for(i in 1:length(z)){
+  y[[i]] = rbinom(n.methods, 1, p.d)
+}
+
+y = do.call("c", y)
+ # apply(matrix(y, ncol = 3, byrow = T), 2L, mean)
+
+tree = list()
+for(i in 1:n.trees){tree[[i]] = rep(i, n.visits*n.methods)}
+tree = do.call("c", tree)
+
+method = rep(c("roll", "soil", "spray"), n.trees*n.visits)
+
+visit_list = list()
+for(i in 1:n.visits){
+visit_list[[i]] = rep(i, n.methods)}
+visit = rep(do.call("c", visit_list), n.trees)
+
+data <- data.frame(tree = tree, method = method, y = y, visit = visit) %>%
+  pivot_wider(id_col = c(tree, method, visit), names_from = c(method, visit), values_from = y) %>%
+  dplyr::select(2:(n.methods*n.visits+1))
+
+data_roll <- data %>%
+  select(starts_with("roll")) %>%
+  as.matrix()
+
+data_soil <- data %>%
+  select(starts_with("soil")) %>%
+  as.matrix()
+
+data_spray <- data %>%
+  select(starts_with("spray")) %>%
+  as.matrix()
+
+y <- array(c(data_roll, data_soil, data_spray), dim = c(n.trees,n.visits,n.methods))
+
+device.roll <- array(c(rep(1, n.trees*n.visits), 
+                       rep(0, n.trees*n.visits), 
+                       rep(0, n.trees*n.visits)),
+                  dim = c(n.trees, n.visits, n.methods))
+
+device.soil <- array(c(rep(0, n.trees*n.visits), 
+                       rep(1, n.trees*n.visits), 
+                       rep(0, n.trees*n.visits)),
+                  dim = c(n.trees, n.visits, n.methods))
+
+
+# Bundle and summarize data set
+bats.jags.data.multimethod <- list(y = y, 
+                                       n.trees = nrow(y), 
+                                       n.visits = ncol(y), 
+                                       n.device = dim(y)[3],
+                                       tree = tree,
+                                       device.roll = device.roll,
+                                       device.soil = device.soil)
+return(bats.jags.data.multimethod)
+}
+```
+
+# heirarchical bernouli model  
+https://github.com/boboppie/kruschke-doing_bayesian_data_analysis/blob/master/2e/Jags-Ydich-XnomSsubj-MbernBeta.R
+https://github.com/boboppie/kruschke-doing_bayesian_data_analysis/blob/master/2e/Jags-Ymet-XmetSsubj-MrobustHier.R
+```{r}  
+sink("NJ_bats_hierarchical.txt")
+cat("
+model {
+  for(i in 1:n.total){
+      y[i] ~ dbern( ilogit( theta0[tree[i]] + theta.roll[tree[i]] * device.roll[i] + theta.soil[tree[i]] * device.soil[i] ) ) 
+      }
+
+  for ( treeId in 1:n.trees ) {
+    theta0[treeId] ~ dnorm( theta0mu , 1/(theta0sigma^2) )
+    theta.roll[treeId] ~ dnorm( theta.rollmu , 1/(theta.rollsigma^2) ) 
+    theta.soil[treeId] ~ dnorm( theta.soilmu , 1/(theta.soilsigma^2) ) 
+  }
+  
+  # priors 
+  theta0mu ~ dnorm( 0, .1 )
+  theta.rollmu ~ dnorm( 0, .1 )
+  theta.soilmu ~ dnorm( 0, .1 )
+  theta0sigma ~ dunif( 1.0E-3, 1.0E+3 )
+  theta.rollsigma ~ dunif( 1.0E-3, 1.0E+3 )
+  theta.soilsigma ~ dunif( 1.0E-3, 1.0E+3 )
+  
+  # derived
+  logit(p.roll) =  theta0mu + theta.rollmu
+  logit(p.soil) = theta0mu + theta.soilmu
+  logit(p.spray) = theta0mu
+  
+}
+  
+",fill=TRUE)
+sink()
+```
+# multi-method occupancy model
+```{r}
+sink("NJ_bats_multimethod.txt")
+cat("
+model {
+
+# Priors and model for params
+int.psi ~ dunif(0,1)         # Intercept of occupancy probability
+gamma0 <- logit(int.psi)       # same on logit scale
+
+int.theta ~ dunif(0,1)       # Intercept plot-level occupancy probability
+beta0 <- logit(int.theta)      # same on logit scale
+
+int.p ~ dunif(0,1)           # Intercept detection probability
+alpha0 <- logit(int.p)         # same on logit scale
+alpha.roll ~ dnorm(0, 0.1) # Device covariate on logit(detection)
+alpha.soil ~ dnorm(0, 0.1) # Device covariate on logit(detection)
+
+# Likelihood
+for (i in 1:n.trees){
+   # Occurrence in tree i
+   z[i] ~ dbern(psi[i]) 
+   logit(psi[i]) <- gamma0
+   for (j in 1:n.visits){
+      # Occurrence in plot sample j
+      a[i,j] ~ dbern(z[i] * theta[i,j])
+      logit(theta[i,j]) <- beta0
+      for (k in 1:n.device){
+         # detection error process for device k
+         y[i,j,k] ~ dbern(a[i,j] * p[i,j,k])
+         logit(p[i,j,k]) <- alpha0 + alpha.roll * device.roll[i,j,k] +
+                                     alpha.soil * device.soil[i,j,k]
+      }
+   }
+ }
+
+# Derived quantities
+# tree-level occupancy
+logit(psi.trees) <- gamma0
+# visit-level occupancy during survey round 1
+logit(theta.visits) <- beta0
+# detection probability for roll
+logit(p.roll) <- alpha0 + alpha.roll
+# detection probability for soil
+logit(p.soil) <- alpha0 + alpha.soil
+# detection probability for spray
+logit(p.spray) <- alpha0
+
+# # Cumulative vineyard-level detection probability for 1-30 plots (eDNA / round 1)
+# for(i in 1:30){
+# p_vineyard_eDNA_r1[i] <- (1 - (1 - p.eDNA * theta.round1)^i)
+# }
+# 
+# # Cumulative vineyard-level detection probability for 1-30 plots (eDNA / round 2)
+# for(i in 1:30){
+# p_vineyard_eDNA_r2[i] <- (1 - (1 - p.eDNA * theta.round2)^i)
+# }
+# 
+# # Cumulative vineyard-level detection probability for 1-30 plots (visual / round 1)
+# for(i in 1:30){
+# p_vineyard_vis_r1[i] <- (1 - (1 - p.vis * theta.round1)^i)
+# }
+# 
+# # Cumulative vineyard-level detection probability for 1-30 plots (visual / round 2)
+# for(i in 1:30){
+# p_vineyard_vis_r2[i] <- (1 - (1 - p.vis * theta.round2)^i)
+# }
+# 
+# # Plots required to reach 95% certainty of detecting lanternflies within occupied vineyards
+# n_eDNA_r1 <- log(20) / (-log(1 - p.eDNA * theta.round1))
+# n_eDNA_r2 <- log(20) / (-log(1 - p.eDNA * theta.round2))
+# n_vis_r1 <- log(20) / (-log(1 - p.vis * theta.round1))
+# n_vis_r2 <- log(20) / (-log(1 - p.vis * theta.round2))
+
+}
+",fill=TRUE)
+sink()
+```
+
+# simulate and fit hierarchical
+```{r}
+
+batsim_p_list = list()
+batsim_pl_list = list()
+batsim_pu_list = list()
+n.iterations = 30
+for(i in 1:n.iterations){
+bat_data = simbats(n.trees = 30, n.visits = 3)
+n.trees = 30 
+n.visits = 3
+the_title = "30 trees, 3 visits, 3 methods (hierarchical model)"
+
+bat_data_new = list(y = c(bat_data$y),
+                    tree = rep(1:n.trees, n.visits*3),
+                    device.roll = c(bat_data$device.roll),
+                    device.soil = c(bat_data$device.soil),
+                    n.trees = bat_data$n.trees,
+                    n.total = length(c(bat_data$y)))
+
+# Initial values
+# inits <- function() list(theta0mu = rnorm(1, 2, 1))
+#                          alpha.roll = rnorm(1, 2, 1),
+#                          alpha.soil = rnorm(1, 2, 1))
+
+# Parameters monitored
+params <- c("theta0mu", "theta.rollmu", "theta.soilmu" , "p.roll", "p.soil", "p.spray")
+
+#####################################
+#### Run jags model
+#####################################
+NJ_bats_hierarchical <- jagsUI::jags(data = bat_data_new,
+                         # inits = inits,
+                         parameters.to.save = params,
+                         model.file = "NJ_bats_hierarchical.txt",
+                         n.chains = 3,
+                         n.adapt = NULL,
+                         n.burnin = 10000,
+                         n.iter = 30000,
+                         n.thin = 10,
+                         parallel = T,
+                         verbose = TRUE,
+                         modules = NULL)
+
+# Examine model output
+
+batsim_p_list[[i]] <- c(NJ_bats_hierarchical$q50$p.roll, 
+                      NJ_bats_hierarchical$q50$p.soil, 
+                      NJ_bats_hierarchical$q50$p.spray)
+
+batsim_pl_list[[i]] <- c(NJ_bats_hierarchical$q2.5$p.roll, 
+                      NJ_bats_hierarchical$q2.5$p.soil, 
+                      NJ_bats_hierarchical$q2.5$p.spray)
+
+batsim_pu_list[[i]] <- c(NJ_bats_hierarchical$q97.5$p.roll, 
+                      NJ_bats_hierarchical$q97.5$p.soil, 
+                      NJ_bats_hierarchical$q97.5$p.spray)
+}
+
+iteration = list()
+for(i in 1:n.iterations){iteration[[i]] <- rep(i,3)}
+iteration = do.call("c", iteration)
+
+batsim_out <- data.frame(p = do.call("c", batsim_p_list),
+                         pl = do.call("c", batsim_pl_list),
+                         pu = do.call("c", batsim_pu_list),
+                         method = rep(c("roll", "soil", "spray")),
+                         iteration)
+
+batsim_sum <- batsim_out %>%
+  group_by(method) %>%
+  summarize(mean.p = mean(p), mean.pl = mean(pl), mean.pu = mean(pu))
+
+batsim_out %>%
+ggplot() +
+  geom_point(aes(x = iteration, y = p)) +
+  geom_errorbar(aes(x = iteration, ymin = pl, ymax = pu), width = 0) +
+  geom_hline(aes(yintercept = mean.p), color = "red", linetype = 2, data = batsim_sum) +
+  facet_wrap(~method) +
+  cowplot::theme_cowplot() +
+  scale_y_continuous(breaks = c(0,.2, .4, .6, .8, 1), limits = c(0,1)) +
+  ggtitle(the_title)
+
+# Examine traceplots
+# jagsUI::traceplot(NJ_vineyards_multimethod)
+ ggsave(paste0(the_title, ".jpg"), dpi = 400, height = 7, width = 7)
+
+```
+
+# Run Bayesian multi-method occupancy model in JAGS
+Run time is approximately xx seconds with parallel = T.
+```{r}
+batsim_p_list = list()
+batsim_pl_list = list()
+batsim_pu_list = list()
+n.iterations = 30
+for(i in 1:n.iterations){
+bat_data = simbats(n.trees = 30, n.visits = 3)
+
+# Initial values
+inits <- function() list(z = apply(bat_data$y, 1, max), # inits for presence (z)
+                         a = apply(bat_data$y, c(1,2), max), # inits for availability (a)
+                         int.psi = runif(1), 
+                         int.theta = runif(1),
+                         int.p = runif(1), 
+                         alpha.roll = rnorm(1, 2, 1),
+                         alpha.soil = rnorm(1, 2, 1))
+
+# Parameters monitored
+params <- c("gamma0", "beta0", "alpha0", "alpha.roll", 
+            "alpha.soil", "psi.trees", "theta.visits", "p.roll", "p.soil", "p.spray")
+
+#####################################
+#### Run jags model
+#####################################
+NJ_bats_multimethod <- jagsUI::jags(data = bat_data,
+                         inits = inits,
+                         parameters.to.save = params,
+                         model.file = "NJ_bats_multimethod.txt",
+                         n.chains = 3,
+                         n.adapt = NULL,
+                         n.burnin = 10000,
+                         n.iter = 20000,
+                         n.thin = 10,
+                         parallel = T,
+                         verbose = TRUE,
+                         modules = NULL)
+
+# Examine model output
+
+batsim_p_list[[i]] <- c(NJ_bats_multimethod$q50$p.roll, 
+                      NJ_bats_multimethod$q50$p.soil, 
+                      NJ_bats_multimethod$q50$p.spray)
+
+batsim_pl_list[[i]] <- c(NJ_bats_multimethod$q2.5$p.roll, 
+                      NJ_bats_multimethod$q2.5$p.soil, 
+                      NJ_bats_multimethod$q2.5$p.spray)
+
+batsim_pu_list[[i]] <- c(NJ_bats_multimethod$q97.5$p.roll, 
+                      NJ_bats_multimethod$q97.5$p.soil, 
+                      NJ_bats_multimethod$q97.5$p.spray)
+}
+
+iteration = list()
+for(i in 1:n.iterations){iteration[[i]] <- rep(i,3)}
+iteration = do.call("c", iteration)
+
+batsim_out <- data.frame(p = do.call("c", batsim_p_list),
+                         pl = do.call("c", batsim_pl_list),
+                         pu = do.call("c", batsim_pu_list),
+                         method = rep(c("roll", "soil", "spray")),
+                         iteration)
+
+batsim_sum <- batsim_out %>%
+  group_by(method) %>%
+  summarize(mean.p = mean(p), mean.pl = mean(pl), mean.pu = mean(pu))
+
+batsim_out %>%
+ggplot() +
+  geom_point(aes(x = iteration, y = p)) +
+  geom_errorbar(aes(x = iteration, ymin = pl, ymax = pu), width = 0) +
+  geom_hline(aes(yintercept = mean.p), color = "red", linetype = 2, data = batsim_sum) +
+  facet_wrap(~method) +
+  cowplot::theme_cowplot() +
+  scale_y_continuous(breaks = c(0,.2, .4, .6, .8, 1), limits = c(0,1)) +
+  ggtitle("30 trees, 3 visits, 3 methods")
+
+# Examine traceplots
+# jagsUI::traceplot(NJ_vineyards_multimethod)
+ ggsave("30trees_3visits_3methods_B.jpg", dpi = 400)
+```
