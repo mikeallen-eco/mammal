@@ -83,7 +83,15 @@ for(s in 1:11){
 r_detnon <- r_array
 r_detnon[r_detnon>0] <- 1  
 
-
+# create matrix for NMDS
+r_mat <- matrix(0, nrow = 63, ncol = 11)
+for(s in 1:11){
+  for(tv in 1:63){
+    r_mat[tv, s] <- 
+        as.numeric(r[tv,s+2])
+      }
+  }
+ 
 ```
 # simplest commmunity occ mod from Kery and Royle
 11.6.1 Simplest community occupancy model: n-fold single species
@@ -315,6 +323,62 @@ ggplot(occprob_tree) +
   scale_x_continuous(limits = c(0,1))
   
 ggsave("figures/occprob_tree.png", height = 1000, width = 2000, units = "px", dpi = 600)
+
+```
+
+# Mammals
+used this site for code:
+https://rstudio-pubs-static.s3.amazonaws.com/694016_e2d53d65858d4a1985616fa3855d237f.html
+```{r}
+library(vegan)
+library(BiodiversityR)
+
+r_detnon_mat <- r_mat
+r_detnon_mat[r_detnon_mat>0] <- 1
+r_mat_mean <- 
+  aggregate(r_mat, by = list(r$tree), mean) %>%
+  select(-Group.1) %>%
+  as.matrix()
+
+r_mat_mean_no_blanks <- r_mat_mean[which(rowSums(r_mat_mean)>0),]
+
+env.data <- data.frame(
+tree_name = unique(r$tree)[which(rowSums(r_mat_mean)>0)]
+)
+
+mammal_NMDS=metaMDS(r_mat_mean_no_blanks, # Our community-by-species matrix
+                     k=2, distance = 'bray', trymax = 100) # The number of reduced dimensions. Increase if high stress is problem. 
+
+plot1 <- ordiplot(mammal_NMDS, choices = c(1, 2))
+
+sites.long1 <-
+  BiodiversityR::sites.long(plot1, env.data = env.data) %>%
+  mutate(axis1 = as.numeric(axis1),
+         axis2 = as.numeric(axis2))
+head(sites.long1)
+str(sites.long1)
+
+ggplot(sites.long1) +
+  geom_vline(xintercept = c(0),
+             color = "grey70",
+             linetype = 2) +
+  geom_hline(yintercept = c(0),
+             color = "grey70",
+             linetype = 2) +     
+  xlab("NMDS1") +
+  ylab("NMDS2") +
+  scale_x_continuous(sec.axis = dup_axis(labels = NULL, name = NULL)) +
+  scale_y_continuous(sec.axis = dup_axis(labels = NULL, name = NULL)) +
+  geom_text(aes(
+    x = axis1,
+    y = axis2,
+    label = tree_name
+  ),
+  size = 5) +
+  #BioR.theme +
+  ggsci::scale_colour_npg() +
+  coord_fixed(ratio = 1)
+
 
 ```
 
