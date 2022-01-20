@@ -1,0 +1,20 @@
+Email from Bobby on 1/18 (2AM!) pertaining to the "tax2_neg_nosb.xlsx" and "table.c10.complete.xlsx" data files (the ones used in the final analysis as of 1/19/22).
+
+> Alright, I've got the results for real this time.
+>
+> Things have changed a decent amount.  The sample-sample contamination is actually super low.  Once human and mouse DNA were removed it only impacted a handful of OTUs.  The systemic contamination is still there.  
+>
+> Still no red bats, but there are now some reliable big brown bat hits so that's cool.  
+>
+> Also, there are a lot more OTUs in general and a couple new species.  
+>
+> I've attached a pre-contamination removal spread sheet and a final table.  The final table I removed any OTU with less than 20 total count to reduce noise.  We could always bring those back if we wanted but I don't think it adds much.  We could further reduce noise in other ways too if need be.
+>
+> The final table is color coded.  For species and percent similarities, dark tan is from blast and light tan is from the reference libraries.  
+>
+> OTUs highlighted green are between 90% and 95% similarity, a bit off from the typical 95% similarity threshold (all others are above).
+>
+> Orange highlighted OTUs are ones that had a decent level of contamination (only one left in final table) yellow highlighted OTUs are ones that had some form of contamination.  
+>
+> Thank you and please let me know if any of this is unclear!
+> -Bobby

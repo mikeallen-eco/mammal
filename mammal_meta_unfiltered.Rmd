@@ -17,28 +17,58 @@ library(ggplot2)
 
 # read in raw read data
 m_raw <- 
-  readxl::read_xlsx("data/resultstable_justvert_probcon.xlsx")
+  readxl::read_xlsx("data/table.c10.complete.xlsx")
+
+# read in taxonomy file
+tax <- read.csv("data/taxonomy.csv")
+
+# read in sample list
+samps <- read_xlsx("data/sample_list.xlsx")
+samps2 <- read_xlsx("data/Exxon Bat 2021.xlsx", sheet = "Tree  Sample Data") %>%
+  mutate(tree = c(paste0("T0", 1:9), paste0("T",10:21)))
 
 # clean version summarized by OTU
-m_all <- m_raw %>%
-  select(species = Species, group = Group, 
-         starts_with("R"), starts_with("S")) %>%
-  mutate(species2 = species,
-         species = case_when(group == 
-                               "Squirrel" ~ 
-                               "Sciurus carolinensis",
-                             TRUE ~ species2)) %>%
-  filter(group %notin% c("Pig", "Cow")) %>%
-  select(-species2, -group) %>%
-  arrange(species)
+m_otu <- m_raw %>%
+  select(species, psim = "percent similarity",  
+         starts_with("sample")) %>%
+  mutate(method = case_when(psim <= 1 ~ "libraries",
+                            TRUE ~ "BLAST"),
+         psim = case_when(psim <= 1 ~ psim*100,
+                          TRUE ~ psim)) %>%
+# rule: if genus exists in region, keep; otherwise, exclude
+  filter(species %notin% c("Gallus gallus", 
+                           "Pudu mephistophiles, Mazama rufina",
+                           "Leuconotopicus albolarvatus"),
+         grepl(species, pattern = "Emberiza") == FALSE) %>%
+  mutate(species = 
+           case_when(species == "Euphagus cyanocephalus" ~ 
+                       "Euphagus sp.",
+                     grepl(species, 
+                           pattern = "Microtus") ~ 
+                       "Microtus sp.",
+                     grepl(species, pattern = "Sciurius") ~ 
+                       "Sciurus carolinensis",
+                     grepl(species, pattern = "Sciurus") ~
+                             "Sciurus carolinensis",
+                     species == "Canis lupus" ~ 
+                       "Canis lupus familiares",
+                     grepl(species, pattern = "Vulpes vulpes") ~
+                             "Vulpes vulpes",
+                     TRUE ~ species)) %>%
+  arrange(species) %>%
+  left_join(tax, by = "species") %>%
+  select(common, starts_with("Sample"))
+
+# for later
+#  mutate(lineage = paste0("r__Chordata;c__", class, ";o__", order, ";f__", fam))
 
 # clean version summarized by species
-m_sum <- m_all %>%
-  group_by(species) %>%
+m_sp_temp <- m_otu %>%
+  group_by(common) %>%
   summarize_all(sum) %>%
-  arrange(species)
+  arrange(common)
   
-m_flip <- m_sum %>%
+m_flip <- m_sp_temp %>%
   t() %>%
   as.data.frame()
 m_flip$sample <- rownames(m_flip)
@@ -46,119 +76,113 @@ m_flip$sample <- rownames(m_flip)
 # create all the sample names
 roller_samples1 <-
   lapply(1:3, function(x)
-    paste0("R0", 1:9, LETTERS[x]))
+    paste0("sample:R0", 1:9, LETTERS[x]))
 roller_samples2 <-
   lapply(1:3, function(x)
-    paste0("R", 10:21, LETTERS[x]))
+    paste0("sample:R", 10:21, LETTERS[x]))
 soil_samples1 <-
   lapply(1:3, function(x)
-    paste0("S0", 1:9, LETTERS[x]))
+    paste0("sample:S0", 1:9, LETTERS[x]))
 soil_samples2 <-
   lapply(1:3, function(x)
-    paste0("S", 10:21, LETTERS[x]))
+    paste0("sample:S", 10:21, LETTERS[x]))
 
-m_sum_full <- data.frame(sample = c(do.call(c, roller_samples1),
+m_sp_temp2 <- data.frame(sample = c(do.call(c, roller_samples1),
                     do.call(c, roller_samples2),
                     do.call(c, soil_samples1),
                     do.call(c, soil_samples2))) %>%
   arrange(sample) %>%
   left_join(m_flip, by = "sample") %>%
   replace(is.na(.), 0) %>%
-  mutate(tree = paste0("T", substr(sample, 2, 3)),
-         visit = substr(sample, 4, 5),
-         method = substr(sample, 1, 1),
-         site = substr(sample, 1, 3)) %>%
-  select(tree, visit, method, site, 2:19)
-colnames(m_sum_full) <-
+  mutate(tree = paste0("T",substr(sample, 9, 10)),
+         visit = substr(sample, 11, 11), 
+         method = substr(sample, 8, 8),
+         site = substr(sample, 8, 10)) %>%
+  select(tree, visit, method, site, starts_with("V"))
+colnames(m_sp_temp2) <-
   c("tree", "visit", "method", "site",
-    gsub(gsub(m_sum$species, pattern = " ", replacement = "_"),
+    gsub(gsub(m_sp_temp$common, pattern = " ", replacement = "_"),
          pattern = ",", replacement = ""))
 
-tmp <- matrix(as.numeric(as.matrix(m_sum_full[,5:22])), 
-                   nrow = 126, ncol = 18,
+m_sp <- cbind.data.frame(m_sp_temp2[,1:4], sp_mat) %>%
+  arrange(tree, visit, site) %>%
+  filter(paste0(site,visit) %in% samps$`Sample ID`) %>%
+  group_by(tree) %>%
+  mutate(samp_num = 1:length(tree))
+
+# make site by species matrix
+sp_mat_temp <- matrix(as.numeric(as.matrix(m_sp_temp2[,5:26])), 
+                   nrow = 126, ncol = 22,
                     byrow = F) %>%
   as.data.frame()
-colnames(tmp) <- colnames(m_sum_full[,5:22])
+colnames(sp_mat_temp) <- colnames(m_sp_temp2[,5:26])
+sp_mat <- sp_mat_temp[which(paste0(m_sp_temp2$site,m_sp_temp2$visit) %in% samps$`Sample ID`),]
 
-m_sum_full <- cbind.data.frame(m_sum_full[,1:4], tmp)
-
-# define variables
-n_trees <- 21
-n_sites <- 42 # num unique sampling locations
-n_species <- 18
-n_visits <- 3
-n_methods <- 2
+# define sample size variables
+n_trees <- length(unique(m_sp$tree))
+nspec <- ncol(sp_mat)
+n_visits <- max(tally(m_sp %>% group_by(tree))$n) # max visits/tree
+n_samples <- nrow(m_sp)
 
 # create array for multispecies occupancy modelling
-m_sum_array <- array(0, dim = c(n_sites, n_visits, n_species))
-for(s in 1:n_species){
-  for(t in 1:n_sites){
-    for(v in 1:n_visits){
-      m_sum_array[t, v, s] <- 
-        m_sum_full[m_sum_full$site==unique(m_sum_full$site)[t] &
-                     m_sum_full$visit==m_sum_full$visit[v],
-                                      colnames(m_sum_full)[s+4]]
+# dims: sites, visits, species with 
+m_sp_array <- array(NA, dim = c(n_trees, n_visits, nspec))
+for(s in 1:nspec){
+  for(samp in 1:n_samples){
+    tree_num <- as.numeric(as.factor(m_sp$tree))[samp]
+    samp_num <- m_sp$samp_num[samp]
+      m_sp_array[tree_num, samp_num, s] <- 
+        as.numeric(m_sp[samp, s+4])
       }
   }
-  }
   
-m_sum_detnon <- m_sum_array
-m_sum_detnon[m_sum_detnon>0] <- 1  
+# convert array to detection/non-detection
+m_sp_detnon <- m_sp_array
+m_sp_detnon[m_sp_detnon>0] <- 1  
+y <- m_sp_detnon # rename for occupancy model
 
-# create matrix for NMDS
-m_sum_mat <- as.matrix(tmp)
+# create visit-level covariate matrices
+method_mat <- matrix(NA, nrow = n_trees, ncol = n_visits)
+for(samp in 1:n_samples){
+    tree_num <- as.numeric(as.factor(m_sp$tree))[samp]
+    samp_num <- m_sp$samp_num[samp]
+      method_mat[tree_num, samp_num] <- 
+        as.numeric(as.factor(m_sp$method))[samp]
+      }
+method_mat[method_mat==2] <- 0 # make roller = 1, soil = 0
 
-rm(tmp, roller_samples1, roller_samples2, soil_samples1, soil_samples2)
- 
+# remove unneeded objects
+rm(m_sp_temp, m_sp_temp2, m_flip, roller_samples1, roller_samples2, soil_samples1, soil_samples2, sp_mat_temp)
 
-# format for occupancy
-
-# define y as the mammal data
-y_roll <- m_sum_detnon[1:21,,]
-y_soil <- m_sum_detnon[22:42,,]
-
-# define number of species
-nspec = n_species
-
-# Get observed number of roller-identified species per site
-tmp <- apply(y_roll, c(1,3), max, na.rm = TRUE)
+# Get observed number of species per site
+tmp <- apply(y, c(1,3), max, na.rm = TRUE)
 tmp[tmp == "-Inf"] <- NA
-sort(C_roll <- apply(tmp, 1, sum))     # Compute and print sorted species counts
+sort(C <- apply(tmp, 1, sum)) # Compute and print sorted species counts
 
-# Get observed number of soil-identified species per site
-tmp <- apply(y_soil, c(1,3), max, na.rm = TRUE)
-tmp[tmp == "-Inf"] <- NA
-sort(C_soil <- apply(tmp, 1, sum))     # Compute and print sorted species counts
-
-# Observed number of occupied sites per species (roller)
-tmp <- apply(y_roll, c(1,3), max, na.rm = TRUE)
+# Observed number of occupied sites per species
+tmp <- apply(y, c(1,3), max, na.rm = TRUE)
 # For the 'all NA' site, max returns -Inf with a warning
 tmp[tmp == -Inf] <- NA         # Change -Inf to NA
-sort(obs.occ_roll <- apply(tmp, 2, sum, na.rm = TRUE))
-names(obs.occ_roll) <- colnames(m_sum_full)[5:(n_species+4)]
-
-# Observed number of occupied sites per species (soil)
-tmp <- apply(y_soil, c(1,3), max, na.rm = TRUE)
-# For the 'all NA' site, max returns -Inf with a warning
-tmp[tmp == -Inf] <- NA         # Change -Inf to NA
-sort(obs.occ_soil <- apply(tmp, 2, sum, na.rm = TRUE))
-names(obs.occ_soil) <- colnames(m_sum_full)[5:(n_species+4)]
+sort(obs.occ <- apply(tmp, 2, sum, na.rm = TRUE))
+names(obs.occ) <- colnames(m_sp)[5:(nspec+4)]
 
 # Collapse 3D detection/nondetection data to 2D detection frequencies
-ysum_roll <- apply(y_roll, c(1,3), sum, na.rm = T) 
-ysum_soil <- apply(y_soil, c(1,3), sum, na.rm = T) 
+ysum <- apply(y, c(1,3), sum, na.rm = T) 
 
+# number of visits per tree
+J <- summarize(m_sp %>% group_by(tree), J = max(samp_num))$J
+
+rm(tmp)
 ```
 
-# Roller Community occupancy model
+# Community occupancy model
 From Kery and Royle 11.6.2 Community occupancy model with bivariate species-specific random effects
 ```{r}
 # Bundle and summarize data set
-str( win.data <- list(ysum = ysum_roll, M = nrow(ysum_roll), J = rep(3, 21), nspec = dim(ysum_roll)[2], R = matrix(c(5,0,0,1), ncol = 2), df = 3) )
-
+str( win.data <- list(ysum = ysum, M = nrow(ysum), J = J, nspec = dim(ysum)[2], R = matrix(c(5,0,0,1), ncol = 2), df = 3) )
 
 # Specify model in BUGS language
-sink("model6.txt")
+sink("scripts/psi._p.txt")
 cat("
 model {
 
@@ -199,7 +223,7 @@ for(k in 1:nspec){
 # Derived quantities
 rho <- Sigma[1,2] / sqrt(Sigma[1,1] * Sigma[2,2])  # Correlation coefficient
 for(k in 1:nspec){
-   Nocc.fs[k] <- sum(z[,k])   # Number of occupied sites among the 267
+   Nocc.fs[k] <- sum(z[,k])   # Number of occupied sites among the 21
 }
 for (i in 1:M) {
    Nsite[i] <- sum(z[i,])     # Number of occurring species
@@ -210,7 +234,7 @@ sink()
 
 
 # Initial values
-zst <- apply(y_roll, c(1,3), max) # Observed occurrence as starting values for z
+zst <- apply(y, c(1,3), max) # Observed occurrence as starting values for z
 zst[is.na(zst)] <- 1
 inits <- function() list(z = zst, Omega = matrix(c(1,0,0,1), ncol = 2), eta = matrix(0, nrow = nspec, ncol = 2))
 
@@ -221,26 +245,26 @@ params <- c("mu.eta", "probs", "psi", "p", "Nsite", "Nocc.fs", "Sigma", "rho")
 ni <- 20000   ;   nt <- 15   ;   nb <- 5000   ;   nc <- 3
 
 # Call JAGS from R (ART 12 min), check traceplots and summarize posteriors
-out6 <- jagsUI::jags(win.data, inits, params, "scripts/model6.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
-par(mfrow = c(3,3))   ;   jagsUI::traceplot(out6, c('mu.eta', 'probs', 'Sigma', 'rho'))
-print(out6, 3)
+psi._p. <- jagsUI::jags(win.data, inits, params, "scripts/psi._p.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
+par(mfrow = c(3,3))   ;   jagsUI::traceplot(psi._p., c('mu.eta', 'probs', 'Sigma', 'rho'))
+print(psi._p., 3)
 
 
-detprob_roll <- as.data.frame(out6$summary[23:40,]) %>%
+detprob <- as.data.frame(psi._p.$summary[27:48,]) %>%
   rename(q2.5 = 3, q97.5 = 7, q25 = 4, q75 = 6) %>%
-  mutate(species = names(obs.occ_roll),
-         obs.occ = obs.occ_roll) %>%
+  mutate(species = names(obs.occ),
+         obs.occ = obs.occ) %>%
   mutate(species = forcats::fct_reorder(species, mean, .desc = F))
 
-occprob_roll <- as.data.frame(out6$summary[5:22,]) %>%
+occprob <- as.data.frame(psi._p.$summary[5:26,]) %>%
   rename(q2.5 = 3, q97.5 = 7, q25 = 4, q75 = 6) %>%
-  mutate(species = names(obs.occ_roll),
-         obs.occ = obs.occ_roll,
-         naive.occ = obs.occ_roll/n_trees) %>%
+  mutate(species = names(obs.occ),
+         obs.occ = obs.occ,
+         naive.occ = obs.occ/n_trees) %>%
   mutate(species = forcats::fct_reorder(species, mean, .desc = F))
 
 
-ggplot(detprob_roll) +
+ggplot(detprob) +
   geom_errorbar(aes(xmin = q2.5, xmax = q97.5, y = species), 
                 width = 0, color = "firebrick") +
   geom_errorbar(aes(xmin = q25, xmax = q75, y = species), 
@@ -251,9 +275,9 @@ ggplot(detprob_roll) +
   labs(y = "", x = "Detection probability") +
   scale_x_continuous(limits = c(0,1))
   
-ggsave("figures/detprob_roll.png", height = 6, width = 7, dpi = 400)
+ggsave("figures/detprob_psi._p.png", height = 6, width = 7, dpi = 400)
 
-ggplot(occprob_roll) +
+ggplot(occprob) +
   geom_errorbar(aes(xmin = q2.5, xmax = q97.5, y = species), 
                 width = 0, color = "steelblue") +
   geom_errorbar(aes(xmin = q25, xmax = q75, y = species), 
@@ -264,7 +288,7 @@ ggplot(occprob_roll) +
   labs(y = "", x = "Occupancy probability") +
   scale_x_continuous(limits = c(0,1))
   
-ggsave("figures/occprob_roll.png", height = 6, width = 7, dpi = 400)
+ggsave("figures/occprob_psi._p.png", height = 6, width = 7, dpi = 400)
 
 ```
 
@@ -275,20 +299,26 @@ https://rstudio-pubs-static.s3.amazonaws.com/694016_e2d53d65858d4a1985616fa3855d
 library(vegan)
 library(BiodiversityR)
 
-r_detnon_mat <- r_mat
-r_detnon_mat[r_detnon_mat>0] <- 1
-r_mat_mean <- 
-  aggregate(r_mat, by = list(r$tree), mean) %>%
-  select(-Group.1) %>%
-  as.matrix()
+m_sp_mean <- m_sp %>%
+  group_by(site) %>%
+  select_if(is.numeric) %>%
+  summarize_all(mean) %>%
+  select(-samp_num)
 
-r_mat_mean_no_blanks <- r_mat_mean[which(rowSums(r_mat_mean)>0),]
+m_sp_mean_no_blanks <- m_sp_mean[rowSums(m_sp_mean[,2:23])>0,] %>%
+  mutate(tree = paste0("T", substr(site, 2,3)),
+         method = substr(m_sp_mean_no_blanks$site,1,1)) %>%
+  left_join(select(samps2, tree, Location)) %>%
+  rename(Method = method, Site = Location) %>%
+  mutate(Method = case_when(Method == "R" ~ "Roller",
+                            TRUE ~ "Soil"), 
+         Site = case_when(Site == "Morristown" ~ "Morristown",
+                            TRUE ~ "EcoPreserve"), )
 
-env.data <- data.frame(
-tree_name = unique(r$tree)[which(rowSums(r_mat_mean)>0)]
-)
+env.data <- m_sp_mean_no_blanks[,24:26]
+m_sp_mean_no_blanks_mat <- as.matrix(m_sp_mean_no_blanks[,2:23])
 
-mammal_NMDS=metaMDS(r_mat_mean_no_blanks, # Our community-by-species matrix
+mammal_NMDS=metaMDS(m_sp_mean_no_blanks_mat, # Our community-by-species matrix
                      k=2, distance = 'bray', trymax = 100) # The number of reduced dimensions. Increase if high stress is problem. 
 
 plot1 <- ordiplot(mammal_NMDS, choices = c(1, 2))
@@ -300,7 +330,7 @@ sites.long1 <-
 head(sites.long1)
 str(sites.long1)
 
-ggplot(sites.long1) +
+(nmds_plot <- ggplot(sites.long1) +
   geom_vline(xintercept = c(0),
              color = "grey70",
              linetype = 2) +
@@ -311,17 +341,560 @@ ggplot(sites.long1) +
   ylab("NMDS2") +
   scale_x_continuous(sec.axis = dup_axis(labels = NULL, name = NULL)) +
   scale_y_continuous(sec.axis = dup_axis(labels = NULL, name = NULL)) +
-  geom_text(aes(
+  geom_point(aes(
     x = axis1,
     y = axis2,
-    label = tree_name
+    shape = Method,
+    color = Site
   ),
   size = 5) +
-  #BioR.theme +
-  ggsci::scale_colour_npg() +
+  # cowplot::theme_cowplot() +
+  theme_bw() +
+  theme(text = element_text(size = 14)) +
+  scale_color_manual(values = c("firebrick", "steelblue")) +
   coord_fixed(ratio = 1)
+ggsave("figures/reads_ordination_by_method_site.png", height = 6, width = 6, dpi = 400))
+
+spp.scrs <- as.data.frame(scores(mammal_NMDS, display = "species")) #save species intrinsic values into dataframe
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs)) #add species names to dataframe
+spp.scrs <- cbind(spp.scrs, pval = mammal_NMDS$vectors$pvals) #add pvalues to dataframe so you can select species which are significant
+#spp.scrs<- cbind(spp.scrs, abrev = abbreviate(spp.scrs$Species, minlength = 6)) #abbreviate species names
+sig.spp.scrs <- subset(spp.scrs, pval<=0.05) #subset data to show species significant at 0.05
+
+head(spp.scrs)
+
+```
+# 11.7.2 Dorazio-Royle community model with covariates
+```{r}
+# subset detection/non-detection array to just mammals
+y_mam <- y[,,-c(2,11,14,15,17,21,22)]
+
+# update n species
+nspec <- dim(y_mam)[3]
+# Augment data set: choose one of two different priors on Ntotal
+# nz <- 250                 # Use for vague prior on Ntotal: M = 395
+nz <- 40 - nspec         # Use for informative prior on Ntotal: M = ~40 ("dozens of mammal species" - NJDEP)
 
 
+# changing NA in method matrix to 0 so model can run 
+# (not actually missing)
+method_mat0 <- method_mat; method_mat0[is.na(method_mat0)] <- 0
+
+nsite <- n_trees; nrep <- n_visits
+yaug <- array(0, dim=c(nsite, nrep, nspec+nz)) # array with only zeroes
+yaug[,,1:nspec] <- y_mam      # copy into it the observed data
+
+# Create same NA pattern in augmented species as in the observed species
+missings <- is.na(yaug[,,1]) # e.g., third survey in high-elevation quads
+for(k in (nspec+1):(nspec+nz)){
+  yaug[,,k][missings] <- NA
+}
+
+# Bundle and summarize data
+str(win.data <- list(y = yaug, nsite = dim(y_mam)[1], nrep = dim(y_mam)[2], nspec = dim(y_mam)[3], nz = nz, M = nspec + nz, method = method_mat0) )
+
+
+# Specify model in BUGS language
+sink("scripts/DR_psi._p.method.txt")
+cat("
+model {
+
+# Priors
+omega ~ dunif(0,1)
+# Priors for species-specific effects in occupancy and detection
+for(k in 1:M){
+  lpsi[k] ~ dnorm(mu.lpsi, tau.lpsi)    # Hyperparams describe community
+  # betalpsi1[k] ~ dnorm(mu.betalpsi1, tau.betalpsi1)
+  # betalpsi2[k] ~ dnorm(mu.betalpsi2, tau.betalpsi2)
+  # betalpsi3[k] ~ dnorm(mu.betalpsi3, tau.betalpsi3)
+  lp[k] ~ dnorm(mu.lp, tau.lp)
+  betalp1[k] ~ dnorm(mu.betalp1, tau.betalp1)
+  # betalp2[k] ~ dnorm(mu.betalp2, tau.betalp2)
+  # betalp3[k] ~ dnorm(mu.betalp3, tau.betalp3)
+}
+
+# Hyperpriors
+# For the model of occupancy
+mu.lpsi ~ dnorm(0,0.01)
+tau.lpsi <- pow(sd.lpsi, -2)
+sd.lpsi ~ dunif(0,8)   # as always, bounds of uniform chosen by trial and error
+# mu.betalpsi1 ~ dnorm(0,0.1)
+# tau.betalpsi1 <- pow(sd.betalpsi1, -2)
+# sd.betalpsi1 ~ dunif(0, 4)
+# mu.betalpsi2 ~ dnorm(0,0.1)
+# tau.betalpsi2 <- pow(sd.betalpsi2, -2)
+# sd.betalpsi2 ~ dunif(0,2)
+# mu.betalpsi3 ~ dnorm(0,0.1)
+# tau.betalpsi3 <- pow(sd.betalpsi3, -2)
+# sd.betalpsi3 ~ dunif(0,2)
+
+# For the model of detection
+mu.lp ~ dnorm(0,0.1)
+tau.lp <- pow(sd.lp, -2)
+sd.lp ~ dunif(0, 2)
+mu.betalp1 ~ dnorm(0,0.1)
+tau.betalp1 <- pow(sd.betalp1, -2)
+sd.betalp1 ~ dunif(0,1)
+# mu.betalp2 ~ dnorm(0,0.1)
+# tau.betalp2 <- pow(sd.betalp2, -2)
+# sd.betalp2 ~ dunif(0,1)
+# mu.betalp3 ~ dnorm(0,0.1)
+# tau.betalp3 <- pow(sd.betalp3, -2)
+# sd.betalp3 ~ dunif(0,1)
+
+# Superpopulation process: Ntotal species sampled out of M available
+for(k in 1:M){
+   w[k] ~ dbern(omega)
+}
+
+# Ecological model for true occurrence (process model)
+for(k in 1:M){
+  for (i in 1:nsite) {
+    logit(psi[i,k]) <- lpsi[k] #+ betalpsi1[k] * ele[i] +
+      #betalpsi2[k] * pow(ele[i],2) + betalpsi3[k] * forest[i]
+    mu.psi[i,k] <- w[k] * psi[i,k]
+    z[i,k] ~ dbern(mu.psi[i,k])
+  }
+}
+
+# Observation model for replicated detection/nondetection observations
+for(k in 1:M){
+  for (i in 1:nsite){
+    for(j in 1:nrep){
+      logit(p[i,j,k]) <- lp[k] + betalp1[k] * method[i,j] #+
+        #betalp2[k] * pow(DAT[i,j],2) + betalp3[k] * DUR[i,j]
+      mu.p[i,j,k] <- z[i,k] * p[i,j,k]
+      y[i,j,k] ~ dbern(mu.p[i,j,k])
+    }
+  }
+}
+
+# Derived quantities
+#for(k in 1:M){
+#   Nocc.fs[k] <- sum(z[,k])       # Number of occupied sites among the 267
+#}
+for (i in 1:nsite){
+   Nsite[i] <- sum(z[i,])          # Number of occurring species at each site
+}
+n0 <- sum(w[(nspec+1):(nspec+nz)]) # Number of unseen species
+Ntotal <- sum(w[])                 # Total metacommunity size
+
+# Vectors to save (S for ?save?; discard posterior samples for
+# all minus 1 of the potential species to save disk space)
+# we do this for nz = 250 (i.e., M = 395)
+# lpsiS[1:(nspec+1)] <- lpsi[1:(nspec+1)]
+# betalpsi1S[1:(nspec+1)] <- betalpsi1[1:(nspec+1)]
+# betalpsi2S[1:(nspec+1)] <- betalpsi2[1:(nspec+1)]
+# betalpsi3S[1:(nspec+1)] <- betalpsi3[1:(nspec+1)]
+# lpS[1:(nspec+1)] <- lp[1:(nspec+1)]
+# betalp1S[1:(nspec+1)] <- betalp1[1:(nspec+1)]
+# betalp2S[1:(nspec+1)] <- betalp2[1:(nspec+1)]
+# betalp3S[1:(nspec+1)] <- betalp3[1:(nspec+1)]
+}
+",fill = TRUE)
+sink()
+
+
+# Initial values
+wst <- rep(1, nspec+nz)                   # Simply set everybody at occurring
+zst <- array(1, dim = c(nsite, nspec+nz)) # ditto
+inits <- function() list(z = zst, w = wst, lpsi = rnorm(n = nspec+nz), betalpsi1 = rnorm(n = nspec+nz), betalpsi2 = rnorm(n = nspec+nz), betalpsi3 = rnorm(n = nspec+nz), lp = rnorm(n = nspec+nz), betalp1 = rnorm(n = nspec+nz), betalp2 = rnorm(n = nspec+nz), betalp3 = rnorm(n = nspec+nz))
+
+# Set 1
+params1 <- c("omega", "mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "mu.lp", "sd.lp", "mu.betalp1", "sd.betalp1", "mu.betalp2", "sd.betalp2", "mu.betalp3", "sd.betalp3", "Ntotal", "Nsite")
+
+# MCMC settings
+ni <- 15000   ;   nt <- 10   ;   nb <- 5000   ;   nc <- 3
+
+# Run JAGS, check convergence and summarize posteriors
+DR_psi._p.method_partA <- jagsUI::jags(win.data, inits, params1, 
+               "scripts/DR_psi._p.method.txt", 
+               n.chains = nc, n.thin = nt, n.iter = ni, 
+               n.burnin = nb, parallel = TRUE)
+par(mfrow = c(2, 2))
+jagsUI::traceplot(DR_psi._p.method_partA, c(c("omega", "mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "mu.lp", "sd.lp", "mu.betalp1", "sd.betalp1", "mu.betalp2", "sd.betalp2", "mu.betalp3", "sd.betalp3", "Ntotal")) )
+# saveRDS(DR_psi._p.method_partA, 
+#         "output/DR_psi._p.method_partA.rds")
+DR_psi._p.method_partA <-
+  readRDS("output/DR_psi._p.method_partA.rds")
+
+# Set 2
+params2 <- c("mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "lpsi", "betalpsi1", "betalpsi2", "betalpsi3", "lp", "betalp1", "betalp2", "betalp3", "z", "w")
+ni <- 12000   ;   nt <- 20   ;   nb <- 2000   ;   nc <- 3
+DR_psi._p.method_partB <- jagsUI::jags.basic(win.data, inits, params2, "scripts/DR_psi._p.method.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
+# saveRDS(DR_psi._p.method_partB,
+#         "output/DR_psi._p.method_partB.rds")
+DR_psi._p.method_partB <-
+  readRDS("output/DR_psi._p.method_partB.rds")
+
+library(coda)
+# Put output from 3 chains into a matrix
+all10 <- as.matrix(DR_psi._p.method_partB) 
+summary(DR_psi._p.method_partB)            # May take a loooong time
+gelman.diag(DR_psi._p.method_partB)        # ditto
+
+
+# Comparison of main hyperparameters when M = 215 and with M = 395
+# (not all code to produce this output is shown)
+DR_psi._p.method_partA$summary[1:17,c(1:3, 7)]
+
+
+out10 <- DR_psi._p.method_partA
+
+
+par(mfrow = c(1,2))       # Fig. 11-16
+psi.sample <- plogis(rnorm(10^6, mean = out10$mean$mu.lpsi, sd = out10$mean$sd.lpsi))
+p.sample <- plogis(rnorm(10^6, mean = out10$mean$mu.lp, sd = out10$mean$sd.lp))
+hist(psi.sample, freq = F, breaks = 50, col = "grey", xlab = "Species occupancy probability", ylab = "Density", main = "")
+hist(p.sample, freq = F, breaks = 50, col = "grey", xlab = "Species detection probability", ylab = "Density", main = "")
+summary(psi.sample)   ;   summary(p.sample)
+
+par(mfrow = c(2,4))  # Among-species variability in parameters (not shown)
+hist(out10$sims.list$sd.lpsi, breaks = 100, col = "grey", xlim = c(0,6), main = "Occupancy: intercept")
+abline(v = mean(out10$sims.list$sd.lpsi), col = "blue", lwd = 3)
+hist(out10$sims.list$sd.lpsi, breaks = 100, col = "grey", xlim = c(0,6), main = "Occupancy: linear effect of elevation")
+abline(v = mean(out10$sims.list$sd.lpsi), col = "blue", lwd = 3)
+hist(out10$sims.list$sd.lpsi, breaks = 100, col = "grey", xlim = c(0,6), main = "Occupancy: linear effect of elevation")
+abline(v = mean(out10$sims.list$sd.lpsi), col = "blue", lwd = 3)
+hist(out10$sims.list$sd.lpsi, breaks = 100, col = "grey", xlim = c(0,6), main = "Occupancy: linear effect of elevation")
+abline(v = mean(out10$sims.list$sd.lpsi), col = "blue", lwd = 3)
+hist(out10$sims.list$sd.lp, breaks = 100, col = "grey", xlim = c(0,4), main = "Detection: intercept")
+abline(v = mean(out10$sims.list$sd.lp), col = "blue", lwd = 3)
+hist(out10$sims.list$sd.betalp1, breaks = 100, col = "grey", xlim = c(0,2), main = "Detection: linear effect of survey date")
+abline(v = mean(out10$sims.list$sd.betalp1), col = "blue", lwd = 3)
+hist(out10$sims.list$sd.betalp1, breaks = 100, col = "grey", xlim = c(0,2), main = "Detection: linear effect of survey date")
+abline(v = mean(out10$sims.list$sd.betalp1), col = "blue", lwd = 3)
+hist(out10$sims.list$sd.betalp1, breaks = 100, col = "grey", xlim = c(0,2), main = "Detection: linear effect of survey date")
+abline(v = mean(out10$sims.list$sd.betalp1), col = "blue", lwd = 3)
+
+
+# Visualize covariate mean relationships for the average species
+# Get covariate values for prediction
+o.method <- c(1,0)               
+
+# Predict mean occupancy and also detection by method
+# Put all predictions into a single object
+str( tmp <- out10$sims.list )              # grab MCMC samples
+nsamp <- length(tmp[[1]])    # number of mcmc samples
+predC <- array(NA, dim = c(2, nsamp, 2)) # "C" for 'community mean'
+for(i in 1:nsamp){
+  predC[,i,1] <- plogis(tmp$mu.lpsi[i])
+  predC[,i,2] <- plogis(tmp$mu.lp[i] + tmp$mu.betalp1[i] * o.method)
+}
+
+# Get posterior means and 95% CRIs and plot (Fig. 11?17)
+pmC <- apply(predC, c(1,3), mean)
+criC <- apply(predC, c(1,3), function(x) quantile(x, prob = c(0.025, 0.975)))
+
+mean_preds <-
+  data.frame(
+    metric = c(
+      "mean occupancy",
+      "Roller",
+      "Soil"
+    ),
+    mean = c(pmC[1, 1], pmC[, 2]),
+    q2.5 = c(criC[1, 1, 1], criC[1, , 2]),
+    q97.5 = c(criC[2, 1, 1], criC[2, , 2])
+  )
+#                    metric      mean        q2.5     q97.5
+# 1          mean occupancy 0.3848163 0.004982099 0.9573745
+# 2 mean detection (roller) 0.1695744 0.045528320 0.3629733
+# 3   mean detection (soil) 0.0496531 0.010937759 0.1276716
+
+ggplot(mean_preds[2:3,]) +
+  geom_errorbar(aes(x = metric, ymin = q2.5, ymax = q97.5),
+                width = 0) +
+  geom_point(aes(x = metric, y = mean), size = 3,
+             color = "dodgerblue") +
+  theme_bw() +
+  theme(text = element_text(size = 14)) +
+  labs(x = "", y = "Community Mean \nDetection Probability")
+
+
+
+# Plot posterior distribution of site-specific species richness (Nsite)
+par(mfrow = c(3,3), mar = c(5,4,3,2))
+for(i in 1:21){
+  plot(table(out10$sims.list$Nsite[,i]), main = paste("Tree", i),
+       xlab = "Local species richness", ylab = "", frame = F,
+       xlim = c((min(C[i], out10$sims.list$Nsite[,i], na.rm = T)-2),
+                max(out10$sims.list$Nsite[,i]) ))
+  abline(v = C[i], col = "grey", lwd = 4)
+  browser()
+}
+
+# Plot it only for a selection of sites (Fig. 11-18)
+par(mfrow = c(3,3), mar = c(5,4,3,2))
+for(i in c(1, 3, 5, 7, 9, 11, 13, 15, 20)){
+  plot(table(out10$sims.list$Nsite[,i]), main = paste("Quadrat", i),
+       xlab = "Local species richness", ylab = "", frame = F,
+       xlim = c((min(C[i], out10$sims.list$Nsite[,i], na.rm = T)-2),
+                max(out10$sims.list$Nsite[,i]) ))
+  abline(v = C[i], col = "grey", lwd = 4)
+}
+
+# Ultimately use this to compare Community Size in 2 forests
+# Plot Nsite estimates under models 9 & 10 vs. elevation (Fig. 11-19)
+# offset <- 30    # Set off elevation for better visibility
+# plot(elev, out9$mean$Nsite, xlab = "Elevation (metres)", ylab = "Community size estimate (Nsite)", frame = F, ylim = c(0,60), pch = 16) # black: model 9
+# lines(smooth.spline(out9$mean$Nsite ~ elev), lwd = 3)
+# points(elev+offset, out10$mean$Nsite, pch = 16, col = "blue") # red: model 10
+# lines(smooth.spline(out10$mean$Nsite ~ elev), lwd = 3, col = "blue")
+
+str(all10)                    # look at the MCMC output
+pm <- apply(all10, 2, mean)    # Get posterior means and 95% CRIs
+cri <- apply(all10, 2, function(x) quantile(x, prob = c(0.025, 0.975))) # CRIs
+
+p_roller_mat <- matrix(NA, ncol = 15, nrow = 1500)
+p_soil_mat <- matrix(NA, ncol = 15, nrow = 1500)
+psi_mat <- matrix(NA, ncol = 15, nrow = 1500)
+for(i in 1:15){
+  betalp1 <- all10[,i]
+  lp <- all10[,i+41]
+  lpsi <- all10[,i+81]
+  p_roller_mat[,i] <- plogis(lp + betalp1)
+  p_soil_mat[,i] <- plogis(lp)
+  psi_mat[,i] <- plogis(lpsi)
+}
+
+# p Beta plot data for
+naive_occ <- apply(apply(m_sp_detnon[, , c(1, 3:10, 12:13, 16, 18:20)], c(1, 3), max, na.rm = T), 2, sum)/21
+sp_beta_plot <- data.frame(par = names(pm)[1:15], beta = pm[1:15],
+           beta_q2.5 = cri[1,][1:15],
+           beta_q97.5 = cri[2,][1:15],
+           p_roller = apply(p_roller_mat, 2, mean),
+           p_roller_q2.5 = 
+             apply(p_roller_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
+           p_roller_q97.5 = 
+             apply(p_roller_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,],
+           p_soil = apply(p_soil_mat, 2, mean),
+           p_soil_q2.5 = 
+             apply(p_soil_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
+           p_soil_q97.5 = 
+             apply(p_soil_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,],
+           psi = apply(psi_mat, 2, mean),
+           psi_q2.5 = 
+             apply(psi_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
+           psi_q97.5 = 
+             apply(psi_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,]) %>%
+  mutate(species = colnames(m_sp)[c(5,7:14,16:17,20,22:24)]) %>%
+  mutate(species = gsub(species, 
+                        pattern = "_", replacement = " ")) %>%
+  mutate(species = forcats::fct_reorder(species, p_roller),
+         naive_occ = naive_occ)
+
+# Plot effect size of roller vs. soil by species
+(beta_plot <- sp_beta_plot %>%
+  ggplot() +
+  geom_vline(xintercept = DR_psi._p.method_partA$summary[6,1],
+             color = "red") +
+  geom_vline(xintercept = DR_psi._p.method_partA$summary[6,c(3)],
+             color = "red", lty = 2) +
+  geom_vline(xintercept = DR_psi._p.method_partA$summary[6,c(7)],
+             color = "red", lty = 2) +
+  geom_errorbar(aes(xmin = beta_q2.5, 
+                    xmax = beta_q97.5, y = species),
+                width = 0, color = "black", size = .75) +
+  geom_point(aes(x = beta, y = species), size = 3.5) +
+  geom_vline(xintercept = 0, lty = 2) +
+  theme_bw() +
+  theme(text = element_text(size = 15)) +
+  labs(x = sprintf('\U03B2 (roller vs. soil)'), y = "")
+)
+
+ggsave("figures/roller_vs_soil_effect_size3.png", height = 5,
+       width = 7, dpi = 400)
+
+# Plot phat for roller vs. soil by species
+sp_p_plot <- sp_beta_plot %>%
+  select(species, starts_with("p_r")) %>%
+  rename(p_soil = p_roller, p_soil_q2.5 = p_roller_q2.5,
+         p_soil_q97.5 = p_roller_q97.5) %>%
+  bind_rows(select(sp_beta_plot, species, starts_with("p_s"))) %>%
+  rename(p = 2, q2.5 = 3, q97.5 = 4) %>%
+  mutate(Method = c(rep("Roller", 15), rep("Soil", 15)))
+
+(p_plot <- sp_p_plot %>%
+  ggplot() +
+  geom_errorbar(aes(xmin = q2.5, 
+                    xmax = q97.5, y = species, color = Method),
+                width = 0, size = .75,
+             position = position_dodge(width = .75)) +
+  geom_point(aes(x = p, y = species, shape = Method, color = Method), size = 3.5, fill = "white",
+             position = position_dodge(width = .75)) +
+  scale_shape_manual(values = c(16, 21)) +
+  scale_color_manual(values = c("black", "black")) +
+  #cowplot::theme_cowplot() +
+  theme_bw() +
+  theme(text = element_text(size = 15),
+        legend.position = "none",
+        axis.text.y = element_blank()) +
+  labs(x = "Detection probability", y = "")
+)
+
+ggsave("figures/roller_vs_soil_p.png", height = 5,
+       width = 7, dpi = 400)
+
+# Plot psi by species
+(psi_plot <- sp_beta_plot %>%
+  ggplot() +
+  geom_errorbar(aes(xmin = psi_q2.5, 
+                    xmax = psi_q97.5, y = species),
+                width = 0, color = "black", size = .75) +
+  geom_point(aes(x = psi, y = species), size = 3.5) +
+  geom_point(aes(x = naive_occ, y = species), size = 3.5, shape = "x", color = "red") +
+  theme_bw() +
+  theme(text = element_text(size = 15),
+        axis.text.y = element_blank()) +
+  labs(x = "Occupancy", y = "")
+)
+
+ggsave("figures/psi_by_species.png", height = 5,
+       width = 7, dpi = 400)
+
+the_plot <- gridExtra::grid.arrange(beta_plot, p_plot, psi_plot, ncol = 3)
+ggsave("figures/occ_plot4.png", plot = the_plot, width = 11, height = 5, dpi = 400)
+
+
+# Survey duration (Fig. 11-20 right)
+plot(pm[431:575], 1:145, xlim = c(-0.5, 1), xlab = "Parameter estimate", ylab = "Species number", main = "Effect of survey duration on detection", pch = 16)
+abline(v = 0, lwd = 2, col = "black")
+segments(cri[1, 431:575], 1:145, cri[2, 431:575], 1:145, col = "grey", lwd = 1)
+sig3 <- (cri[1, 431:575] * cri[2, 431:575]) > 0
+segments(cri[1, 431:575][sig3 == 1], (1:145)[sig3 == 1], cri[2, 431:575][sig3 == 1], (1:145)[sig3 == 1], col = "blue", lwd = 2)
+abline(v = out101$summary[15,1], lwd = 3, col = "red")
+abline(v = out101$summary[15, c(3,7)], lwd = 3, col = "red", lty = 2)
+
+
+
+# Effects of elevation (linear and quadratic) and of forest on occupancy
+# par(mfrow = c(1,3), cex.lab = 1.3, cex.axis = 1.3) # can do all in one
+# Effect of elevation (linear) on occupancy probability (Fig. 11-21)
+plot(pm[646:790], 1:145, xlim = c(-8, 8), xlab = "Parameter estimate", ylab = "Species number", main = "Effect of elevation (linear) on occupancy", pch = 16)
+abline(v = 0, lwd = 2, col = "black")
+segments(cri[1, 646:790], 1:145, cri[2, 646:790], 1:145, col = "grey", lwd = 1)
+sig4 <- (cri[1, 646:790] * cri[2, 646:790]) > 0
+segments(cri[1, 646:790][sig4 == 1], (1:145)[sig4 == 1], cri[2, 646:790][sig4 == 1], (1:145)[sig4 == 1], col = "blue", lwd = 2)
+abline(v = out101$summary[3,1], lwd = 3, col = "red")
+abline(v = out101$summary[3,c(3,7)], lwd = 3, col = "red", lty = 2)
+
+
+# Effect of elevation (quadratic) on occupancy probability (Fig. 11-22)
+plot(pm[861:1005], 1:145, xlim = c(-4, 2), xlab = "Parameter estimate", ylab = "Species number", main = "Effect of elevation (quadratic) on occupancy", pch = 16)
+abline(v = 0, lwd = 2, col = "black")
+segments(cri[1, 861:1005], 1:145, cri[2, 861:1005], 1:145, col = "grey", lwd=1)
+sig5 <- (cri[1, 861:1005] * cri[2, 861:1005]) > 0
+segments(cri[1, 861:1005][sig5 == 1], (1:145)[sig5 == 1], cri[2, 861:1005][sig5 == 1], (1:145)[sig5 == 1], col = "blue", lwd = 2)
+abline(v = out101$summary[5,1], lwd = 3, col = "red")
+abline(v = out101$summary[5,c(3,7)], lwd = 3, col = "red", lty = 2)
+
+
+# Effect of forest (linear) on occupancy probability (Fig. 11-23)
+plot(pm[1076:1220], 1:145, xlim = c(-3, 4), xlab = "Parameter estimate", ylab = "Species number", main = "Effect of forest cover on occupancy", pch = 16)
+abline(v = 0, lwd = 2, col = "black")
+segments(cri[1, 1076:1220], 1:145, cri[2, 1076:1220],1:145, col = "grey", lwd=1)
+sig6 <- (cri[1, 1076:1220] * cri[2, 1076:1220]) > 0
+segments(cri[1, 1076:1220][sig6 == 1], (1:145)[sig6 == 1], cri[2, 1076:1220][sig6 == 1], (1:145)[sig6 == 1], col = "blue", lwd = 2)
+abline(v = out101$summary[7,1], lwd = 3, col = "red")
+abline(v = out101$summary[7,c(3,7)], lwd = 3, col = "red", lty = 2)
+negsig6 <- (cri[1, 1076:1220] < 0 & cri[2, 1076:1220] < 0) == 1 # sig negative
+possig6 <- (cri[1, 1076:1220] > 0 & cri[2, 1076:1220] > 0) == 1 # sig positive
+
+
+# Predict detection for date and duration and occupancy for elevation and forest
+# for each of the 145 observed species
+predS <- array(NA, dim = c(500, nspec, 4))   # covariate value x species x response, "S" for 'species'
+p.coef <- cbind(lp=pm[1292:1436], betalp1 = pm[1:145], betalp2 = pm[216:360], betalp3 = pm[431:575])
+psi.coef <- cbind(lpsi=pm[1507:1651], betalpsi1 = pm[646:790], betalpsi2 = pm[861:1005], betalpsi3 = pm[1076:1220])
+
+for(i in 1:nspec){          # Loop over 145 observed species
+  predS[,i,1] <- plogis(p.coef[i,1] + p.coef[i,2] * dat.pred +
+                          p.coef[i,3] * dat.pred^2 )     # p ~ date
+  predS[,i,2] <- plogis(p.coef[i,1] + p.coef[i,4] * dur.pred) # p ~ duration
+  predS[,i,3] <- plogis(psi.coef[i,1] + psi.coef[i,2] * ele.pred +
+                          psi.coef[i,3] * ele.pred^2 )     # psi ~ elevation
+  predS[,i,4] <- plogis(psi.coef[i,1] + psi.coef[i,4] * for.pred) # psi ~ forest
+}
+
+# Plots for detection probability and survey date and duration (Fig. 11-24)
+par(mfrow = c(1,2), cex.lab = 1.3, cex.axis = 1.3)
+plot(o.dat, predS[,1,1], lwd = 3, type = 'l', lty = 1, frame = F,
+     ylim = c(0, 1), xlab = "Survey date (1 = 1 April)",
+     ylab = "Detection probability")
+for(i in 2:145){
+  lines(o.dat, predS[,i,1], col = i, lwd = 3)
+}
+
+plot(o.dur, predS[,1,2], lwd = 3, type = 'l', lty = 1, frame = F,
+     ylim = c(0, 1), xlab = "Survey duration (min)",
+     ylab = "Detection probability")
+for(i in 2:145){
+  lines(o.dur, predS[,i,2], col = i, lwd = 3)
+}
+
+
+# Plots for occupancy probability and elevation and forest cover (Fig. 11-25)
+par(mfrow = c(1,2), cex.lab = 1.3, cex.axis = 1.3)
+plot(o.ele, predS[,1,3], lwd = 3, type = 'l', lty = 1, frame = F,
+     ylim = c(0, 1), xlab = "Elevation (m a.s.l.)",
+     ylab = "Occupancy probability")
+for(i in 2:145){
+  lines(o.ele, predS[,i,3], col = i, lwd = 3)
+}
+
+plot(o.for, predS[,1,4], lwd = 3, type = 'l', lty = 1, frame = F,
+     ylim = c(0, 1), xlab = "Forest cover (%)", ylab = "Occupancy probability")
+for(i in 2:145){
+  lines(o.for, predS[,i,4], col = i, lwd = 3)
+}
+
+```
+
+# Plot reads
+```{r}
+mean_reads <- m_sp %>%
+  group_by(method) %>%
+    select_if(is.numeric) %>%
+  summarize_all(mean) %>%
+  select(-samp_num, -method) %>%
+  t() %>%
+  as.data.frame()
+
+
+# count samples in each method (R = 59, S = 35)
+n_samples <- m_sp %>%
+  group_by(method) %>%
+    tally()
+
+num_with_reads <- m_sp %>%
+  group_by(method) %>%
+    select_if(is.numeric) %>%
+  summarize_all(.funs = function(x) sum(x>0)) %>%
+  select(-samp_num, -method) %>%
+  t()
+
+
+mean_reads_df <- data.frame(
+  species = gsub(rep(rownames(mean_reads), 2), pattern = "_", replacement = " "),
+  Method = c(rep("Roller", nspec), rep("Soil", nspec)),
+  mean_reads = c(mean_reads[,1], mean_reads[,2]),
+  prop_reads = c(num_with_reads[,1]/59,
+                 num_with_reads[,2]/35)
+)  %>%
+  mutate(species = forcats::fct_reorder(species, mean_reads))
+
+# plot mean reads
+mean_reads_df %>%
+  ggplot() +
+  geom_col(aes(x = mean_reads+1, y = species, fill = Method)) +
+  scale_fill_manual(values = c("black", "gray")) +
+  theme_bw() +
+  theme(text = element_text(size = 14)) +
+  labs(y = "", x = "Mean number of reads (log+1)") +
+  scale_x_log10()
+ggsave("figures/mean_reads_by_species_method.png", height = 5,
+       width = 7, dpi = 400)
 ```
 
 

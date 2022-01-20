@@ -1,0 +1,24 @@
+species,common,class,order,fam,genus,sp
+Canis lupus familiares,Domestic Dog,Mammalia,Carnivora,Canidae,Canis,lupus
+Didelphis virginiana,Opossum,Mammalia,Didelphimorphia,Didelphidae,Didelphis,virginiana
+Eptesicus fuscus,Big Brown Bat,Mammalia,Chiroptera,Vespertilionidae,Eptesicus,fuscus
+Euphagus sp.,Rusty Blackbird,Aves,Passeriformes,Icteridae,Euphagus,sp.
+Felis catus,Domestic Cat,Mammalia,Carnivora,Felidae,Felis,catus
+Glaucomys volans,Flying Squirrel,Mammalia,Rodentia,Sciuridae,Glaucomys,volans
+Melanerpes carolinus,Red-bellied Woodpecker,Aves,Piciformes,Picidae,Melanerpes,carolinus
+Meleagris gallopavo,Wild Turkey,Aves,Galliformes,Phasianidae,Meleagris,gallopavo
+Microtus sp.,Vole sp.,Mammalia,Rodentia,Cricetidae,Microtus,sp.
+Odocoileus virginianus,White-tailed Deer,Mammalia,Artiodactyla,Cervidae,Odocoileus,virginianus
+Peromyscus leucopus,White-footed Mouse,Mammalia,Rodentia,Cricetidae,Peromyscus,leucopus
+Picidae,Woodpecker sp.,Aves,Piciformes,Picidae,genus,Pi
+Plethodon cinereus,Red-backed Salamander,Amphibia,Urodela,Plethodontidae,Plethodon,cinereus
+Procyon lotor,Raccoon,Mammalia,Carnivora,Procyonidae,Procyon,lotor
+Rattus norvegicus,Brown Rat,Mammalia,Rodentia,Muridae,Rattus,norvegicus
+Sciurus carolinensis,Gray Squirrel,Mammalia,Rodentia,Sciuridae,Sciurus,carolinensis
+Setophaga coronata,Yellow-rumped Warbler,Aves,Passeriformes,Parulidae,Setophaga,coronata
+Sylvilagus floridanus,Eastern Cottontail,Mammalia,Lagomorpha,Leporidae,Sylvilagus,floridanus
+Tamias striatus,Eastern Chipmunk,Mammalia,Rodentia,Sciuridae,Tamias,striatus
+Tamiasciurus hudsonicus,American Red Squirrel,Mammalia,Rodentia,Sciuridae,Tamiasciurus,hudsonicus
+Turdus migratorius,American Robin,Aves,Passeriformes,Turdidae,Turdus,migratorius
+Vulpes vulpes,Red Fox,Mammalia,Carnivora,Canidae,Vulpes,vulpes
+Zenaida macroura,Mourning Dove,Aves,Columiformes,Columbidae,Zenaida,macroura
