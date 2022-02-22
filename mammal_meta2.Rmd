@@ -14,8 +14,10 @@ library(ggplot2)
 '%notin%' <- Negate('%in%')
 
 # read in raw read data
+# m_raw <-
+#   readxl::read_xlsx("data/table.c10.complete.xlsx")
 m_raw <- 
-  readxl::read_xlsx("data/table.c10.complete.xlsx")
+  readxl::read_xlsx("data/table.c10.complete.leib.xlsx")
 
 # read in taxonomy file
 tax <- read.csv("data/taxonomy.csv")
@@ -57,8 +59,9 @@ m_otu <- m_raw %>%
   left_join(tax, by = "species") %>%
   select(common, starts_with("Sample"))
 
-# for later
-#  mutate(lineage = paste0("r__Chordata;c__", class, ";o__", order, ";f__", fam))
+m_otu_tax <- m_otu %>%
+  left_join(tax) %>%
+  mutate(lineage = paste0("r__Chordata;c__", class, ";o__", order, ";f__", fam, ";g__", genus, ";s__", sp))
 
 # clean version summarized by species
 m_sp_temp <- m_otu %>%
@@ -103,11 +106,14 @@ colnames(m_sp_temp2) <-
          pattern = ",", replacement = ""))
 
 # make temporary full version of species site matrix
-sp_mat_temp <- matrix(as.numeric(as.matrix(m_sp_temp2[,5:26])), 
-                   nrow = 126, ncol = 22,
+tmp_sp <- m_sp_temp2 %>%
+  select("American_Red_Squirrel":"Yellow-rumped_Warbler")
+sp_mat_temp <- matrix(as.numeric(as.matrix(tmp_sp)), 
+                   nrow = 126, ncol = ncol(tmp_sp),
                     byrow = F) %>%
   as.data.frame()
-colnames(sp_mat_temp) <- colnames(m_sp_temp2[,5:26])
+colnames(sp_mat_temp) <- colnames(tmp_sp)
+rm(tmp_sp)
 
 m_sp <- cbind.data.frame(m_sp_temp2[,1:4], sp_mat_temp) %>%
   arrange(tree, visit, site) %>%
@@ -188,10 +194,11 @@ m_sp_mean <- m_sp %>%
   summarize_all(mean) %>%
   select(-samp_num)
 
-m_sp_mean_no_blanks <- m_sp_mean[rowSums(m_sp_mean[,2:23])>0,] %>%
+m_sp_mean_no_blanks <-
+  m_sp_mean[rowSums(m_sp_mean[,2:ncol(m_sp_mean)])>0,] %>%
   mutate(tree = paste0("T", substr(site, 2,3)),
          method = 
-           substr(m_sp_mean[rowSums(m_sp_mean[,2:23])>0,]$site,1,1)) %>%
+           substr(m_sp_mean[rowSums(m_sp_mean[,2:ncol(m_sp_mean)])>0,]$site,1,1)) %>%
   left_join(select(samps2, tree, Location)) %>%
   rename(Method = method, Site = Location) %>%
   mutate(Method = case_when(Method == "R" ~ "Roller",
@@ -199,13 +206,17 @@ m_sp_mean_no_blanks <- m_sp_mean[rowSums(m_sp_mean[,2:23])>0,] %>%
          Site = case_when(Site == "Morristown" ~ "Morristown",
                             TRUE ~ "EcoPreserve"), )
 
-env.data <- m_sp_mean_no_blanks[,24:26]
-m_sp_mean_no_blanks_mat <- as.matrix(m_sp_mean_no_blanks[,2:23])
+env.data <- m_sp_mean_no_blanks %>%
+  select("tree":"Site")
+m_sp_mean_no_blanks_mat <- m_sp_mean_no_blanks %>%
+  select("American_Red_Squirrel":"Yellow-rumped_Warbler") %>%
+  as.matrix()
 
 mammal_NMDS=metaMDS(m_sp_mean_no_blanks_mat, # Our community-by-species matrix
                      k=2, distance = 'bray', trymax = 100) # The number of reduced dimensions. Increase if high stress is problem. 
 
 plot1 <- ordiplot(mammal_NMDS, choices = c(1, 2))
+
 
 sites.long1 <-
   BiodiversityR::sites.long(plot1, env.data = env.data) %>%
@@ -214,6 +225,26 @@ sites.long1 <-
 head(sites.long1)
 str(sites.long1)
 
+
+# make ellipses
+
+  veganCovEllipse<-function (cov, center = c(0, 0), scale = 1, npoints = 100) 
+  {
+    theta <- (0:npoints) * 2 * pi/npoints
+    Circle <- cbind(cos(theta), sin(theta))
+    t(center + scale * t(Circle %*% chol(cov)))
+  }
+
+  df_ell <- data.frame()
+  for(g in levels(as.factor(sites.long1$Site))){
+    df_ell <- rbind(df_ell, cbind(as.data.frame(with(sites.long1[sites.long1$Site==g,],
+                    veganCovEllipse(cov.wt(cbind(axis1,axis2),wt=rep(1/length(axis1),length(axis1)))$cov,center=c(mean(axis1),mean(axis2)))))
+                    ,Site=g))
+  }
+
+
+
+# make the plot
 (nmds_plot <- ggplot(sites.long1) +
   geom_vline(xintercept = c(0),
              color = "grey70",
@@ -232,13 +263,15 @@ str(sites.long1)
     color = Site
   ),
   size = 5) +
+    geom_path(data=df_ell, aes(x=axis1, y=axis2, color = Site), size=1, linetype=2)+
   # cowplot::theme_cowplot() +
   theme_bw() +
   theme(text = element_text(size = 14)) +
   scale_color_manual(values = c("firebrick", "steelblue")) +
   coord_fixed(ratio = 1)
 )
-ggsave("figures/reads_ordination_by_method_site.png", height = 6, width = 6, dpi = 400))
+ggsave("figures/reads_ordination_by_method_site_leibii2.png", 
+       height = 6, width = 6, dpi = 400)
 
 spp.scrs <- as.data.frame(scores(mammal_NMDS, display = "species")) #save species intrinsic values into dataframe
 spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs)) #add species names to dataframe
@@ -253,7 +286,7 @@ head(spp.scrs)
 Just mammals
 ```{r}
 # subset detection/non-detection array to just mammals
-y_mam <- y[,,-c(2,11,14,15,17,21,22)]
+y_mam <- y[,,c(1,3,5:12,14:15,18:21)]
 
 # update n species
 nspec <- dim(y_mam)[3]
@@ -399,19 +432,19 @@ DR_psi._p.method_partA <- jagsUI::jags(win.data, inits, params1,
                n.burnin = nb, parallel = TRUE)
 par(mfrow = c(2, 2))
 jagsUI::traceplot(DR_psi._p.method_partA, c(c("omega", "mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "mu.lp", "sd.lp", "mu.betalp1", "sd.betalp1", "mu.betalp2", "sd.betalp2", "mu.betalp3", "sd.betalp3", "Ntotal")) )
-# saveRDS(DR_psi._p.method_partA, 
-#         "output/DR_psi._p.method_partA.rds")
+# saveRDS(DR_psi._p.method_partA,
+#         "output/DR_psi._p.method_partA_leibii.rds")
 DR_psi._p.method_partA <-
-  readRDS("output/DR_psi._p.method_partA.rds")
+  readRDS("output/DR_psi._p.method_partA_leibii.rds")
 
 # Set 2
 params2 <- c("mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "lpsi", "betalpsi1", "betalpsi2", "betalpsi3", "lp", "betalp1", "betalp2", "betalp3", "z", "w")
 ni <- 12000   ;   nt <- 20   ;   nb <- 2000   ;   nc <- 3
 DR_psi._p.method_partB <- jagsUI::jags.basic(win.data, inits, params2, "scripts/DR_psi._p.method.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
 # saveRDS(DR_psi._p.method_partB,
-#         "output/DR_psi._p.method_partB.rds")
+#         "output/DR_psi._p.method_partB_leibii.rds")
 DR_psi._p.method_partB <-
-  readRDS("output/DR_psi._p.method_partB.rds")
+  readRDS("output/DR_psi._p.method_partB_leibii.rds")
 
 library(coda)
 # Put output from 3 chains into a matrix
@@ -532,10 +565,10 @@ str(all10)                    # look at the MCMC output
 pm <- apply(all10, 2, mean)    # Get posterior means and 95% CRIs
 cri <- apply(all10, 2, function(x) quantile(x, prob = c(0.025, 0.975))) # CRIs
 
-p_roller_mat <- matrix(NA, ncol = 15, nrow = 1500)
-p_soil_mat <- matrix(NA, ncol = 15, nrow = 1500)
-psi_mat <- matrix(NA, ncol = 15, nrow = 1500)
-for(i in 1:15){
+p_roller_mat <- matrix(NA, ncol = 16, nrow = 1500)
+p_soil_mat <- matrix(NA, ncol = 16, nrow = 1500)
+psi_mat <- matrix(NA, ncol = 16, nrow = 1500)
+for(i in 1:16){
   betalp1 <- all10[,i]
   lp <- all10[,i+41]
   lpsi <- all10[,i+81]
@@ -545,10 +578,10 @@ for(i in 1:15){
 }
 
 # p Beta plot data for
-naive_occ <- apply(apply(m_sp_detnon[, , c(1, 3:10, 12:13, 16, 18:20)], c(1, 3), max, na.rm = T), 2, sum)/21
-sp_beta_plot <- data.frame(par = names(pm)[1:15], beta = pm[1:15],
-           beta_q2.5 = cri[1,][1:15],
-           beta_q97.5 = cri[2,][1:15],
+naive_occ <- apply(apply(m_sp_detnon[, , c(1,3,5:12,14:15,18:21)], c(1, 3), max, na.rm = T), 2, sum)/21
+sp_beta_plot <- data.frame(par = names(pm)[1:16], beta = pm[1:16],
+           beta_q2.5 = cri[1,][1:16],
+           beta_q97.5 = cri[2,][1:16],
            p_roller = apply(p_roller_mat, 2, mean),
            p_roller_q2.5 = 
              apply(p_roller_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
@@ -564,7 +597,7 @@ sp_beta_plot <- data.frame(par = names(pm)[1:15], beta = pm[1:15],
              apply(psi_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
            psi_q97.5 = 
              apply(psi_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,]) %>%
-  mutate(species = colnames(m_sp)[c(5,7:14,16:17,20,22:24)]) %>%
+  mutate(species = colnames(m_sp)[c(1,3,5:12,14:15,18:21)+4]) %>%
   mutate(species = gsub(species, 
                         pattern = "_", replacement = " ")) %>%
   mutate(species = forcats::fct_reorder(species, p_roller),
@@ -599,7 +632,7 @@ sp_p_plot <- sp_beta_plot %>%
          p_soil_q97.5 = p_roller_q97.5) %>%
   bind_rows(select(sp_beta_plot, species, starts_with("p_s"))) %>%
   rename(p = 2, q2.5 = 3, q97.5 = 4) %>%
-  mutate(Method = c(rep("Roller", 15), rep("Soil", 15)))
+  mutate(Method = c(rep("Roller", 16), rep("Soil", 16)))
 
 (p_plot <- sp_p_plot %>%
   ggplot() +
@@ -640,7 +673,7 @@ sp_p_plot <- sp_beta_plot %>%
 #        width = 7, dpi = 400)
 
 the_plot <- gridExtra::grid.arrange(beta_plot, p_plot, psi_plot, ncol = 3)
-ggsave("figures/occ_plot4.png", plot = the_plot, width = 11, height = 5, dpi = 400)
+ggsave("figures/occ_plot4_leibii.png", plot = the_plot, width = 11, height = 5, dpi = 400)
 
 
 # Survey duration (Fig. 11-20 right)
@@ -760,7 +793,7 @@ num_with_reads <- m_sp %>%
   select(-samp_num, -method) %>%
   t()
 
-
+nspec <- ncol(sp_mat)
 mean_reads_df <- data.frame(
   species = gsub(rep(rownames(mean_reads), 2), pattern = "_", replacement = " "),
   Method = c(rep("Roller", nspec), rep("Soil", nspec)),
@@ -768,19 +801,114 @@ mean_reads_df <- data.frame(
   prop_reads = c(num_with_reads[,1]/59,
                  num_with_reads[,2]/35)
 )  %>%
-  mutate(species = forcats::fct_reorder(species, mean_reads))
+  group_by(species) %>%
+  mutate(sum_mean_reads = sum(mean_reads)) %>%
+  ungroup() %>%
+  mutate(species = forcats::fct_reorder(species, sum_mean_reads))
 
 # plot mean reads
 mean_reads_df %>%
   ggplot() +
-  geom_col(aes(x = mean_reads+1, y = species, fill = Method)) +
+  geom_col(aes(x = mean_reads+1, y = species, fill = Method),
+           position = position_dodge()) +
   scale_fill_manual(values = c("black", "gray")) +
   theme_bw() +
   theme(text = element_text(size = 14)) +
-  labs(y = "", x = "Mean number of reads (log+1)") +
+  labs(y = "", x = "Mean number of reads") +
   scale_x_log10()
-ggsave("figures/mean_reads_by_species_method.png", height = 5,
+ggsave("figures/mean_reads_by_species_method_leibii.png", 
+       height = 5,
        width = 7, dpi = 400)
 ```
 
+# Heat trees
+NOTE: this currently excludes samples with no reads at all
+```{r}
+library(taxa)
+library(metacoder)
+use_common_name = 0
 
+if(use_common_name == 1){
+obj <- parse_tax_data(m_otu_tax,
+                      class_cols = c(72:75,1)) 
+}else{
+obj <- parse_tax_data(m_otu_tax,
+                      class_cols = c(72:76)) 
+}
+
+# convert to proportions
+# obj$data$tax_data <- calc_obs_props(obj, "tax_data")
+
+Method <- substr(colnames(m_otu)[2:length(colnames(m_otu))],8,8)
+Samples <- colnames(m_otu)[2:length(colnames(m_otu))]
+
+#Getting per-taxon information
+obj$data$tax_abund <- calc_taxon_abund(obj, "tax_data",
+                                       cols = Samples,
+                                       groups = Method)
+obj$data$tax_abund$Soil_per <- obj$data$tax_abund$S/23
+obj$data$tax_abund$Roller_per <- obj$data$tax_abund$R/46
+
+#Getting per-taxon information for 'number of samples'
+obj$data$tax_abund1 <- calc_taxon_abund(obj, "tax_data", 
+                                        cols = Samples)
+
+# calculate the number of samples that have reads for each taxon
+obj$data$tax_occ <- calc_n_samples(obj, "tax_abund1", groups = Method, cols = Samples)
+
+# calculate the number of methods that detected each taxon
+obj$data$tax_occ$num_methods <- (obj$data$tax_occ$S>0) +
+  (obj$data$tax_occ$R>0)
+
+# calculate mean number of taxa detected across all methods
+obj$data$tax_abund$All_per <- (obj$data$tax_abund$Soil_per +
+  obj$data$tax_abund$Roller_per)/2
+
+
+```
+# Make heat trees
+```{r}
+# Soil
+set.seed(1) # This makes the plot appear the same each time it is run 
+(soil <- heat_tree(obj, 
+          node_label = taxon_names,
+          node_size = obj$data$tax_abund$Soil_per,
+          node_color = obj$data$tax_occ$S, 
+          node_color_digits = 2,
+          node_color_trans = "linear",
+          # node_color_range = wesanderson::wes_palette("Zissou1"),
+          node_color_interval = c(0,23),
+          node_size_axis_label = "Mean OTUs / sample",
+          node_color_axis_label = "Samples with reads",
+          layout = "davidson-harel", # The primary layout algorithm
+          initial_layout = "reingold-tilford") +
+    theme(plot.margin=unit(c(-1,0,-1,0), "cm")) +
+    annotate(geom = "text", x = .9, y = .9, label = "Soil", size = 9)
+  )
+ # ggsave("figures/Soil_heattree_abund2.jpg",
+ # width = 7, height = 7, dpi = 400)
+
+# Roller
+set.seed(1) # This makes the plot appear the same each time it is run 
+(roller <- heat_tree(obj, 
+          node_label = taxon_names,
+          node_size = obj$data$tax_abund$Roller_per,
+          node_color = obj$data$tax_occ$R,
+          node_color_digits = 2,
+          node_color_trans = "linear",
+          node_color_interval = c(0,46),
+          node_size_axis_label = "Mean OTUs / sample",
+          node_color_axis_label = "Samples with reads",
+          layout = "davidson-harel", # The primary layout algorithm
+          initial_layout = "reingold-tilford") %>%
+  + theme(plot.margin=unit(c(-1,0,-1,0), "cm")) +
+    annotate(geom = "text", x = .9, y = .9, label = "Roller", size = 9)
+  )
+# ggsave("figures/Roller_heattree_abund2.jpg", width = 7, height = 7, dpi = 400)
+
+# 2-panel figure
+g <- gridExtra::grid.arrange(roller, soil, ncol = 2)
+
+ggsave("figures/heat_tree_collage.jpg", g,
+       height = 9, width = 15, dpi = 400)
+```

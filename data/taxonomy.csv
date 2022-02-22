@@ -1,24 +1,25 @@
-species,common,class,order,fam,genus,sp
-Canis lupus familiares,Domestic Dog,Mammalia,Carnivora,Canidae,Canis,lupus
-Didelphis virginiana,Opossum,Mammalia,Didelphimorphia,Didelphidae,Didelphis,virginiana
-Eptesicus fuscus,Big Brown Bat,Mammalia,Chiroptera,Vespertilionidae,Eptesicus,fuscus
-Euphagus sp.,Rusty Blackbird,Aves,Passeriformes,Icteridae,Euphagus,sp.
-Felis catus,Domestic Cat,Mammalia,Carnivora,Felidae,Felis,catus
-Glaucomys volans,Flying Squirrel,Mammalia,Rodentia,Sciuridae,Glaucomys,volans
-Melanerpes carolinus,Red-bellied Woodpecker,Aves,Piciformes,Picidae,Melanerpes,carolinus
-Meleagris gallopavo,Wild Turkey,Aves,Galliformes,Phasianidae,Meleagris,gallopavo
-Microtus sp.,Vole sp.,Mammalia,Rodentia,Cricetidae,Microtus,sp.
-Odocoileus virginianus,White-tailed Deer,Mammalia,Artiodactyla,Cervidae,Odocoileus,virginianus
-Peromyscus leucopus,White-footed Mouse,Mammalia,Rodentia,Cricetidae,Peromyscus,leucopus
-Picidae,Woodpecker sp.,Aves,Piciformes,Picidae,genus,Pi
-Plethodon cinereus,Red-backed Salamander,Amphibia,Urodela,Plethodontidae,Plethodon,cinereus
-Procyon lotor,Raccoon,Mammalia,Carnivora,Procyonidae,Procyon,lotor
-Rattus norvegicus,Brown Rat,Mammalia,Rodentia,Muridae,Rattus,norvegicus
-Sciurus carolinensis,Gray Squirrel,Mammalia,Rodentia,Sciuridae,Sciurus,carolinensis
-Setophaga coronata,Yellow-rumped Warbler,Aves,Passeriformes,Parulidae,Setophaga,coronata
-Sylvilagus floridanus,Eastern Cottontail,Mammalia,Lagomorpha,Leporidae,Sylvilagus,floridanus
-Tamias striatus,Eastern Chipmunk,Mammalia,Rodentia,Sciuridae,Tamias,striatus
-Tamiasciurus hudsonicus,American Red Squirrel,Mammalia,Rodentia,Sciuridae,Tamiasciurus,hudsonicus
-Turdus migratorius,American Robin,Aves,Passeriformes,Turdidae,Turdus,migratorius
-Vulpes vulpes,Red Fox,Mammalia,Carnivora,Canidae,Vulpes,vulpes
-Zenaida macroura,Mourning Dove,Aves,Columiformes,Columbidae,Zenaida,macroura
+species,common,phyllum,class,order,fam,genus,sp
+Canis lupus familiares,Domestic Dog,Chordata,Mammalia,Carnivora,Canidae,Canis,lupus
+Didelphis virginiana,Opossum,Chordata,Mammalia,Didelphimorphia,Didelphidae,Didelphis,virginiana
+Eptesicus fuscus,Big Brown Bat,Chordata,Mammalia,Chiroptera,Vespertilionidae,Eptesicus,fuscus
+Euphagus sp.,Blackbird sp.,Chordata,Aves,Passeriformes,Icteridae,Euphagus,sp.
+Felis catus,Domestic Cat,Chordata,Mammalia,Carnivora,Felidae,Felis,catus
+Glaucomys volans,Flying Squirrel,Chordata,Mammalia,Rodentia,Sciuridae,Glaucomys,volans
+Melanerpes carolinus,Red-bellied Woodpecker,Chordata,Aves,Piciformes,Picidae,Melanerpes,carolinus
+Meleagris gallopavo,Wild Turkey,Chordata,Aves,Galliformes,Phasianidae,Meleagris,gallopavo
+Microtus sp.,Vole sp.,Chordata,Mammalia,Rodentia,Cricetidae,Microtus,sp.
+Odocoileus virginianus,White-tailed Deer,Chordata,Mammalia,Artiodactyla,Cervidae,Odocoileus,virginianus
+Peromyscus leucopus,White-footed Mouse,Chordata,Mammalia,Rodentia,Cricetidae,Peromyscus,leucopus
+Picidae,Woodpecker sp.,Chordata,Aves,Piciformes,Picidae,genus,Pi
+Plethodon cinereus,Red-backed Salamander,Chordata,Amphibia,Urodela,Plethodontidae,Plethodon,cinereus
+Procyon lotor,Raccoon,Chordata,Mammalia,Carnivora,Procyonidae,Procyon,lotor
+Rattus norvegicus,Brown Rat,Chordata,Mammalia,Rodentia,Muridae,Rattus,norvegicus
+Sciurus carolinensis,Gray Squirrel,Chordata,Mammalia,Rodentia,Sciuridae,Sciurus,carolinensis
+Setophaga coronata,Yellow-rumped Warbler,Chordata,Aves,Passeriformes,Parulidae,Setophaga,coronata
+Sylvilagus floridanus,Eastern Cottontail,Chordata,Mammalia,Lagomorpha,Leporidae,Sylvilagus,floridanus
+Tamias striatus,Eastern Chipmunk,Chordata,Mammalia,Rodentia,Sciuridae,Tamias,striatus
+Tamiasciurus hudsonicus,American Red Squirrel,Chordata,Mammalia,Rodentia,Sciuridae,Tamiasciurus,hudsonicus
+Turdus migratorius,American Robin,Chordata,Aves,Passeriformes,Turdidae,Turdus,migratorius
+Vulpes vulpes,Red Fox,Chordata,Mammalia,Carnivora,Canidae,Vulpes,vulpes
+Zenaida macroura,Mourning Dove,Chordata,Aves,Columbiformes,Columbidae,Zenaida,macroura
+Myotis leibii,E. small-footed myotis,Chordata,Mammalia,Chiroptera,Vespertilionidae,Myotis,leibii
