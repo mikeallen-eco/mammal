@@ -826,7 +826,7 @@ NOTE: this currently excludes samples with no reads at all
 ```{r}
 library(taxa)
 library(metacoder)
-use_common_name = 0
+use_common_name = 1
 
 if(use_common_name == 1){
 obj <- parse_tax_data(m_otu_tax,
@@ -873,13 +873,13 @@ set.seed(1) # This makes the plot appear the same each time it is run
 (soil <- heat_tree(obj, 
           node_label = taxon_names,
           node_size = obj$data$tax_abund$Soil_per,
-          node_color = obj$data$tax_occ$S, 
+          node_color = 100*obj$data$tax_occ$S/23, 
           node_color_digits = 2,
           node_color_trans = "linear",
           # node_color_range = wesanderson::wes_palette("Zissou1"),
-          node_color_interval = c(0,23),
-          node_size_axis_label = "Mean OTUs / sample",
-          node_color_axis_label = "Samples with reads",
+          node_color_interval = c(0,100),
+          node_size_axis_label = "Mean reads / sample",
+          node_color_axis_label = "% samples with reads",
           layout = "davidson-harel", # The primary layout algorithm
           initial_layout = "reingold-tilford") +
     theme(plot.margin=unit(c(-1,0,-1,0), "cm")) +
@@ -893,12 +893,12 @@ set.seed(1) # This makes the plot appear the same each time it is run
 (roller <- heat_tree(obj, 
           node_label = taxon_names,
           node_size = obj$data$tax_abund$Roller_per,
-          node_color = obj$data$tax_occ$R,
+          node_color = 100*obj$data$tax_occ$R/46,
           node_color_digits = 2,
           node_color_trans = "linear",
-          node_color_interval = c(0,46),
-          node_size_axis_label = "Mean OTUs / sample",
-          node_color_axis_label = "Samples with reads",
+          node_color_interval = c(0,100),
+          node_size_axis_label = "Mean reads / sample",
+          node_color_axis_label = "% samples with reads",
           layout = "davidson-harel", # The primary layout algorithm
           initial_layout = "reingold-tilford") %>%
   + theme(plot.margin=unit(c(-1,0,-1,0), "cm")) +
@@ -909,6 +909,6 @@ set.seed(1) # This makes the plot appear the same each time it is run
 # 2-panel figure
 g <- gridExtra::grid.arrange(roller, soil, ncol = 2)
 
-ggsave("figures/heat_tree_collage.jpg", g,
+ggsave("figures/heat_tree_collage2.jpg", g,
        height = 9, width = 15, dpi = 400)
 ```
