@@ -6,8 +6,6 @@ output: html_document
 ---
 
 # Load libraries and data formatting
-
-
 ```{r}
 library(readxl)
 library(dplyr)
@@ -104,18 +102,20 @@ colnames(m_sp_temp2) <-
     gsub(gsub(m_sp_temp$common, pattern = " ", replacement = "_"),
          pattern = ",", replacement = ""))
 
-m_sp <- cbind.data.frame(m_sp_temp2[,1:4], sp_mat) %>%
-  arrange(tree, visit, site) %>%
-  filter(paste0(site,visit) %in% samps$`Sample ID`) %>%
-  group_by(tree) %>%
-  mutate(samp_num = 1:length(tree))
-
-# make site by species matrix
+# make temporary full version of species site matrix
 sp_mat_temp <- matrix(as.numeric(as.matrix(m_sp_temp2[,5:26])), 
                    nrow = 126, ncol = 22,
                     byrow = F) %>%
   as.data.frame()
 colnames(sp_mat_temp) <- colnames(m_sp_temp2[,5:26])
+
+m_sp <- cbind.data.frame(m_sp_temp2[,1:4], sp_mat_temp) %>%
+  arrange(tree, visit, site) %>%
+  filter(paste0(site,visit) %in% samps$`Sample ID`) %>%
+  group_by(tree) %>%
+  mutate(samp_num = 1:length(tree))
+
+# make final site by species matrix
 sp_mat <- sp_mat_temp[which(paste0(m_sp_temp2$site,m_sp_temp2$visit) %in% samps$`Sample ID`),]
 
 # define sample size variables
@@ -175,124 +175,7 @@ J <- summarize(m_sp %>% group_by(tree), J = max(samp_num))$J
 rm(tmp)
 ```
 
-# Community occupancy model
-From Kery and Royle 11.6.2 Community occupancy model with bivariate species-specific random effects
-```{r}
-# Bundle and summarize data set
-str( win.data <- list(ysum = ysum, M = nrow(ysum), J = J, nspec = dim(ysum)[2], R = matrix(c(5,0,0,1), ncol = 2), df = 3) )
-
-# Specify model in BUGS language
-sink("scripts/psi._p.txt")
-cat("
-model {
-
-# Priors
-for(k in 1:nspec){  # Group lpsi and lp together in array eta
-   lpsi[k] <- eta[k,1]
-   lp[k] <- eta[k,2]
-   eta[k, 1:2] ~ dmnorm(mu.eta[], Omega[,])
-}
-# Hyperpriors
-# Priors for mu.lpsi=mu.eta[1] and mu.lp=mu.eta[2]
-# probs = community means of occupancy and detection probability
-for(v in 1:2){
-   mu.eta[v] <- log(probs[v] / (1-probs[v]))
-   probs[v] ~ dunif(0,1)
-}
-# Prior for variance-covariance matrix
-Omega[1:2, 1:2] ~ dwish(R[,], df)
-Sigma[1:2, 1:2] <- inverse(Omega[,])
-
-# Ecological model for latent occurrence z (process model)
-for(k in 1:nspec){
-   logit(psi[k]) <- lpsi[k]   # Must take outside of i loop
-   for (i in 1:M) {
-      z[i,k] ~ dbern(psi[k])
-   }
-}
-
-# Observation model for observed data y
-for(k in 1:nspec){
-   logit(p[k]) <- lp[k]       # Needs to be outside of i loop
-   for (i in 1:M) {
-      mu.p[i,k] <- z[i,k] * p[k]
-      ysum[i,k] ~ dbin(mu.p[i,k], J[i])
-   }
-}
-
-# Derived quantities
-rho <- Sigma[1,2] / sqrt(Sigma[1,1] * Sigma[2,2])  # Correlation coefficient
-for(k in 1:nspec){
-   Nocc.fs[k] <- sum(z[,k])   # Number of occupied sites among the 21
-}
-for (i in 1:M) {
-   Nsite[i] <- sum(z[i,])     # Number of occurring species
-}
-}
-",fill = TRUE)
-sink()
-
-
-# Initial values
-zst <- apply(y, c(1,3), max) # Observed occurrence as starting values for z
-zst[is.na(zst)] <- 1
-inits <- function() list(z = zst, Omega = matrix(c(1,0,0,1), ncol = 2), eta = matrix(0, nrow = nspec, ncol = 2))
-
-# Parameters monitored
-params <- c("mu.eta", "probs", "psi", "p", "Nsite", "Nocc.fs", "Sigma", "rho")
-
-# MCMC settings
-ni <- 20000   ;   nt <- 15   ;   nb <- 5000   ;   nc <- 3
-
-# Call JAGS from R (ART 12 min), check traceplots and summarize posteriors
-psi._p. <- jagsUI::jags(win.data, inits, params, "scripts/psi._p.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
-par(mfrow = c(3,3))   ;   jagsUI::traceplot(psi._p., c('mu.eta', 'probs', 'Sigma', 'rho'))
-print(psi._p., 3)
-
-
-detprob <- as.data.frame(psi._p.$summary[27:48,]) %>%
-  rename(q2.5 = 3, q97.5 = 7, q25 = 4, q75 = 6) %>%
-  mutate(species = names(obs.occ),
-         obs.occ = obs.occ) %>%
-  mutate(species = forcats::fct_reorder(species, mean, .desc = F))
-
-occprob <- as.data.frame(psi._p.$summary[5:26,]) %>%
-  rename(q2.5 = 3, q97.5 = 7, q25 = 4, q75 = 6) %>%
-  mutate(species = names(obs.occ),
-         obs.occ = obs.occ,
-         naive.occ = obs.occ/n_trees) %>%
-  mutate(species = forcats::fct_reorder(species, mean, .desc = F))
-
-
-ggplot(detprob) +
-  geom_errorbar(aes(xmin = q2.5, xmax = q97.5, y = species), 
-                width = 0, color = "firebrick") +
-  geom_errorbar(aes(xmin = q25, xmax = q75, y = species), 
-                size = 1.5, width = 0, color = "firebrick") +
-  geom_point(aes(x = mean, y = species), size = 3, color = "firebrick") +
-  theme(text = element_text(size = 4)) +
-  theme_bw() +
-  labs(y = "", x = "Detection probability") +
-  scale_x_continuous(limits = c(0,1))
-  
-ggsave("figures/detprob_psi._p.png", height = 6, width = 7, dpi = 400)
-
-ggplot(occprob) +
-  geom_errorbar(aes(xmin = q2.5, xmax = q97.5, y = species), 
-                width = 0, color = "steelblue") +
-  geom_errorbar(aes(xmin = q25, xmax = q75, y = species), 
-                width = 0, size = 1.5, color = "steelblue") +
-  geom_point(aes(x = mean, y = species), size = 2, color = "steelblue") +
-  theme(axis.text = element_text(size = 4)) +
-  theme_bw() +
-  labs(y = "", x = "Occupancy probability") +
-  scale_x_continuous(limits = c(0,1))
-  
-ggsave("figures/occprob_psi._p.png", height = 6, width = 7, dpi = 400)
-
-```
-
-# Mammals
+# Ordination (all species)
 used this site for code:
 https://rstudio-pubs-static.s3.amazonaws.com/694016_e2d53d65858d4a1985616fa3855d237f.html
 ```{r}
@@ -307,7 +190,8 @@ m_sp_mean <- m_sp %>%
 
 m_sp_mean_no_blanks <- m_sp_mean[rowSums(m_sp_mean[,2:23])>0,] %>%
   mutate(tree = paste0("T", substr(site, 2,3)),
-         method = substr(m_sp_mean_no_blanks$site,1,1)) %>%
+         method = 
+           substr(m_sp_mean[rowSums(m_sp_mean[,2:23])>0,]$site,1,1)) %>%
   left_join(select(samps2, tree, Location)) %>%
   rename(Method = method, Site = Location) %>%
   mutate(Method = case_when(Method == "R" ~ "Roller",
@@ -353,6 +237,7 @@ str(sites.long1)
   theme(text = element_text(size = 14)) +
   scale_color_manual(values = c("firebrick", "steelblue")) +
   coord_fixed(ratio = 1)
+)
 ggsave("figures/reads_ordination_by_method_site.png", height = 6, width = 6, dpi = 400))
 
 spp.scrs <- as.data.frame(scores(mammal_NMDS, display = "species")) #save species intrinsic values into dataframe
@@ -365,6 +250,7 @@ head(spp.scrs)
 
 ```
 # 11.7.2 Dorazio-Royle community model with covariates
+Just mammals
 ```{r}
 # subset detection/non-detection array to just mammals
 y_mam <- y[,,-c(2,11,14,15,17,21,22)]
@@ -703,8 +589,8 @@ sp_beta_plot <- data.frame(par = names(pm)[1:15], beta = pm[1:15],
   labs(x = sprintf('\U03B2 (roller vs. soil)'), y = "")
 )
 
-ggsave("figures/roller_vs_soil_effect_size3.png", height = 5,
-       width = 7, dpi = 400)
+# ggsave("figures/roller_vs_soil_effect_size3.png", height = 5,
+#        width = 7, dpi = 400)
 
 # Plot phat for roller vs. soil by species
 sp_p_plot <- sp_beta_plot %>%
@@ -733,8 +619,8 @@ sp_p_plot <- sp_beta_plot %>%
   labs(x = "Detection probability", y = "")
 )
 
-ggsave("figures/roller_vs_soil_p.png", height = 5,
-       width = 7, dpi = 400)
+# ggsave("figures/roller_vs_soil_p.png", height = 5,
+#        width = 7, dpi = 400)
 
 # Plot psi by species
 (psi_plot <- sp_beta_plot %>%
@@ -750,8 +636,8 @@ ggsave("figures/roller_vs_soil_p.png", height = 5,
   labs(x = "Occupancy", y = "")
 )
 
-ggsave("figures/psi_by_species.png", height = 5,
-       width = 7, dpi = 400)
+# ggsave("figures/psi_by_species.png", height = 5,
+#        width = 7, dpi = 400)
 
 the_plot <- gridExtra::grid.arrange(beta_plot, p_plot, psi_plot, ncol = 3)
 ggsave("figures/occ_plot4.png", plot = the_plot, width = 11, height = 5, dpi = 400)
