@@ -630,6 +630,7 @@ mean_reads <- m_sp %>%
   t() %>%
   as.data.frame()
 
+
 # count samples in each method (R = 59, S = 35)
 n_samples <- m_sp %>%
   group_by(method) %>%
@@ -694,6 +695,24 @@ mean_reads_df %>%
 ggsave("figures/mean_reads_by_species_method_mammals2.png", 
        height = 5,
        width = 7, dpi = 400)
+
+# get mean reads by method for non-bat arboreal/non-arboreal
+mean_reads_df %>%
+  filter(species %notin% c("E. small-footed myotis",
+                           "Big Brown Bat*")) %>%
+  group_by(Method, arboreal) %>%
+  summarise(mean_mean = mean(mean_reads),
+            min_mean = min(mean_reads),
+            max_mean = max(mean_reads))
+
+# get mean reads by method for bats
+mean_reads_df %>%
+  filter(species %in% c("E. small-footed myotis",
+                           "Big Brown Bat*")) %>%
+  group_by(Method) %>%
+  summarise(mean_mean = mean(mean_reads),
+            min_mean = min(mean_reads),
+            max_mean = max(mean_reads))
 ```
 
 # species accumulation curve
