@@ -929,7 +929,10 @@ s <- m_sp %>%
 
 s %>%
   group_by(loc, method) %>%
-  summarise(across(American_Red_Squirrel:`Yellow-rumped_Warbler`, mean)) %>%
+  summarise(across(American_Red_Squirrel:`Yellow-rumped_Warbler`, list(mean, length, function(x) 100*sum(x>0)/length(x)))) %>%
   t()
+
+# how many trees (and visits per tree) for each method
+table(s$loc, s$site)
 ```
 
