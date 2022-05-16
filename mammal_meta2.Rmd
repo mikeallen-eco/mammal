@@ -919,3 +919,17 @@ g <- gridExtra::grid.arrange(roller, soil, ncol = 2)
 ggsave("figures/heat_tree_collage2.jpg", g,
        height = 9, width = 15, dpi = 400)
 ```
+
+# species lists by site
+```{r}
+sites <- read.csv("data/sites.csv")
+
+s <- m_sp %>%
+  left_join(sites)
+
+s %>%
+  group_by(loc, method) %>%
+  summarise(across(American_Red_Squirrel:`Yellow-rumped_Warbler`, mean)) %>%
+  t()
+```
+
