@@ -703,7 +703,10 @@ mean_reads_df %>%
   group_by(Method, arboreal) %>%
   summarise(mean_mean = mean(mean_reads),
             min_mean = min(mean_reads),
-            max_mean = max(mean_reads))
+            max_mean = max(mean_reads),
+            sd_mean = sd(mean_reads),
+            n = length(mean_reads),
+            se = sd_mean/sqrt(n))
 
 # get mean reads by method for bats
 mean_reads_df %>%
@@ -712,7 +715,30 @@ mean_reads_df %>%
   group_by(Method) %>%
   summarise(mean_mean = mean(mean_reads),
             min_mean = min(mean_reads),
-            max_mean = max(mean_reads))
+            max_mean = max(mean_reads),            
+            sd_mean = sd(mean_reads),
+            n = length(mean_reads),
+            se = sd_mean/sqrt(n))
+
+# get overall mean for arboreal vs. non-arboreal
+mean_reads_df %>%
+  group_by(arboreal) %>%
+  summarise(mean_mean = mean(mean_reads),
+            min_mean = min(mean_reads),
+            max_mean = max(mean_reads),
+            sd_mean = sd(mean_reads),
+            n = length(mean_reads),
+            se = sd_mean/sqrt(n))
+
+# get overall mean by method for arboreal vs. non-arboreal
+mean_reads_df %>%
+  group_by(Method, arboreal) %>%
+  summarise(mean_mean = mean(mean_reads),
+            min_mean = min(mean_reads),
+            max_mean = max(mean_reads),
+            sd_mean = sd(mean_reads),
+            n = length(mean_reads),
+            se = sd_mean/sqrt(n))
 ```
 
 # cumulative detection probability curves
@@ -936,3 +962,61 @@ s %>%
 table(s$loc, s$site)
 ```
 
+# Species accumulation curves (from insect paper)
+used code from here: https://rpubs.com/Roeland-KINDT/694021
+and: http://biological-complexity.blogspot.com/2018/01/on-species-accumulation-curves.html
+```{r}
+library(BiodiversityR) # also loads vegan
+library(ggplot2)
+# library(ggsci)
+# library(readxl)
+
+spray_roll_mat <- as.matrix(select(d_otus, starts_with("Roll"), 
+                                starts_with("Spray"))) %>%
+  t()
+spray_roll_mat[spray_roll_mat>0] <- 1 
+
+soil_mat <- as.matrix(select(d_otus, starts_with("Soil"))) %>%
+  t()
+soil_mat[soil_mat>0] <- 1 
+
+
+accum.spray_roll <- accumcomp(spray_roll_mat, 
+                     y=data.frame(method = rep("spray_roll", 6)),
+                     factor='method', 
+  method='exact', conditioned=FALSE, plotit=FALSE)
+accum.spray_roll
+
+accum.soil <- accumcomp(soil_mat, 
+                     y=data.frame(method = rep("soil", 5)),
+                     factor='method', 
+  method='exact', conditioned=FALSE, plotit=FALSE)
+accum.soil
+
+plot.data.spray_roll <- data.frame(samples = c(accum.spray_roll[,,1]), 
+           s = c(accum.spray_roll[,,2]), 
+           sd = c(accum.spray_roll[,,3]),
+           method = "spray_roll")
+
+plot.data.soil <- data.frame(samples = c(accum.soil[,,1]), 
+           s = c(accum.soil[,,2]), 
+           sd = c(accum.soil[,,3]),
+           method = "soil")
+
+plot.data <- plot.data.spray_roll %>%
+  bind_rows(plot.data.soil)
+
+ggplot(plot.data) +
+  geom_ribbon(aes(x = samples, ymin = s-2*sd, 
+                  ymax = s+2*sd, fill = method),
+              alpha = 0.5) +  
+  geom_line(aes(x = samples, y = s, group = method), size = 1) +
+  scale_fill_manual(values = c("darkgreen", "steelblue")) +
+  theme_bw() +
+  theme(text = element_text(size = 14)) +
+  labs(x = "No. samples", y = "No. families")
+
+
+# ggsave("species_accumulation_curve_spray_roll_soil.png", 
+#        dpi = 600, width = 6, height = 4)
+```
