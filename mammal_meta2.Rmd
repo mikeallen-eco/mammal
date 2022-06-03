@@ -178,13 +178,14 @@ ysum <- apply(y, c(1,3), sum, na.rm = T)
 # number of visits per tree
 J <- summarize(m_sp %>% group_by(tree), J = max(samp_num))$J
 
+# subset detection/non-detection array to just mammals
+y_mam <- y[,,c(1,3,5:12,14:15,18:21)]
+
 rm(tmp)
 ```
 # 11.7.2 Dorazio-Royle AHM 1 community model with covariates
 Just mammals
 ```{r}
-# subset detection/non-detection array to just mammals
-y_mam <- y[,,c(1,3,5:12,14:15,18:21)]
 
 # update n species
 nspec <- dim(y_mam)[3]
@@ -968,55 +969,195 @@ and: http://biological-complexity.blogspot.com/2018/01/on-species-accumulation-c
 ```{r}
 library(BiodiversityR) # also loads vegan
 library(ggplot2)
-# library(ggsci)
-# library(readxl)
-
-spray_roll_mat <- as.matrix(select(d_otus, starts_with("Roll"), 
-                                starts_with("Spray"))) %>%
-  t()
-spray_roll_mat[spray_roll_mat>0] <- 1 
-
-soil_mat <- as.matrix(select(d_otus, starts_with("Soil"))) %>%
-  t()
-soil_mat[soil_mat>0] <- 1 
 
 
-accum.spray_roll <- accumcomp(spray_roll_mat, 
-                     y=data.frame(method = rep("spray_roll", 6)),
+# Make empty martices for the spp accumulation curves
+roll_mat_1samp = matrix(NA, nrow = 21, ncol = 16)
+soil_mat_1samp = matrix(NA, nrow = 21, ncol = 16)
+both_mat_1samp = matrix(NA, nrow = 21, ncol = 16)
+
+roll_mat_2samp = matrix(NA, nrow = 21, ncol = 16)
+soil_mat_2samp = matrix(NA, nrow = 21, ncol = 16)
+both_mat_2samp = matrix(NA, nrow = 21, ncol = 16)
+
+roll_mat_3samp = matrix(NA, nrow = 21, ncol = 16)
+soil_mat_3samp = matrix(NA, nrow = 21, ncol = 16)
+both_mat_3samp = matrix(NA, nrow = 21, ncol = 16)
+
+# Fill matrices with detection/nondetection data by tree and species
+for(j in 1:16){
+  print(paste0("species:",j))
+for(i in 1:21){
+roll_mat_1samp[i,j] = y_mam[i,,j][method_mat[i,]==1][1]
+soil_mat_1samp[i,j] = y_mam[i,,j][method_mat[i,]==0][1]
+both_mat_1samp[i,j] = max(roll_mat_1samp[i,j], soil_mat_1samp[i,j])
+
+roll_mat_2samp[i,j] = max(y_mam[i,,j][method_mat[i,]==1][1:2])
+soil_mat_2samp[i,j] = max(y_mam[i,,j][method_mat[i,]==0][1:2])
+both_mat_2samp[i,j] = max(roll_mat_2samp[i,j], soil_mat_2samp[i,j])
+
+roll_mat_3samp[i,j]=max(y_mam[i,,j][method_mat[i,]==1][1:3])
+soil_mat_3samp[i,j]=max(y_mam[i,,j][method_mat[i,]==0][1:3])
+both_mat_3samp[i,j] = max(roll_mat_3samp[i,j], soil_mat_3samp[i,j])
+  }
+}
+
+# remove rows with all NAs
+roll_mat_2samp = roll_mat_2samp[is.na(roll_mat_2samp[,1])==F,]
+roll_mat_3samp = roll_mat_3samp[is.na(roll_mat_3samp[,1])==F,]
+soil_mat_1samp = soil_mat_1samp[is.na(soil_mat_1samp[,1])==F,]
+soil_mat_2samp = soil_mat_2samp[is.na(soil_mat_2samp[,1])==F,]
+soil_mat_3samp = soil_mat_3samp[is.na(soil_mat_3samp[,1])==F,]
+both_mat_1samp = both_mat_1samp[is.na(both_mat_1samp[,1])==F,]
+both_mat_2samp = both_mat_2samp[is.na(both_mat_2samp[,1])==F,]
+both_mat_3samp = both_mat_3samp[is.na(both_mat_3samp[,1])==F,]
+
+# run species accumulation curves
+accum.roll1 <- accumcomp(roll_mat_1samp, 
+                     y=data.frame(method = 
+                                    rep("roll1",
+                                        nrow(roll_mat_1samp))),
                      factor='method', 
   method='exact', conditioned=FALSE, plotit=FALSE)
-accum.spray_roll
+accum.roll1
 
-accum.soil <- accumcomp(soil_mat, 
-                     y=data.frame(method = rep("soil", 5)),
+accum.roll2 <- accumcomp(roll_mat_2samp, 
+                     y=data.frame(method = 
+                                    rep("roll2",
+                                        nrow(roll_mat_2samp))),
                      factor='method', 
   method='exact', conditioned=FALSE, plotit=FALSE)
-accum.soil
+accum.roll2
 
-plot.data.spray_roll <- data.frame(samples = c(accum.spray_roll[,,1]), 
-           s = c(accum.spray_roll[,,2]), 
-           sd = c(accum.spray_roll[,,3]),
-           method = "spray_roll")
+accum.roll3 <- accumcomp(roll_mat_3samp, 
+                     y=data.frame(method = 
+                                    rep("roll3",
+                                        nrow(roll_mat_3samp))),
+                     factor='method', 
+  method='exact', conditioned=FALSE, plotit=FALSE)
+accum.roll3
 
-plot.data.soil <- data.frame(samples = c(accum.soil[,,1]), 
-           s = c(accum.soil[,,2]), 
-           sd = c(accum.soil[,,3]),
-           method = "soil")
+accum.soil1 <- accumcomp(soil_mat_1samp, 
+                         y=data.frame(method = 
+                                        rep("soil1",
+                                            nrow(soil_mat_1samp))),
+                         factor='method', 
+                         method='exact', conditioned=FALSE, plotit=FALSE)
+accum.soil1
 
-plot.data <- plot.data.spray_roll %>%
-  bind_rows(plot.data.soil)
+accum.soil2 <- accumcomp(soil_mat_2samp, 
+                         y=data.frame(method = 
+                                        rep("soil2",
+                                            nrow(soil_mat_2samp))),
+                         factor='method', 
+                         method='exact', conditioned=FALSE, plotit=FALSE)
+accum.soil2
 
-ggplot(plot.data) +
-  geom_ribbon(aes(x = samples, ymin = s-2*sd, 
-                  ymax = s+2*sd, fill = method),
+accum.soil3 <- accumcomp(soil_mat_3samp, 
+                         y=data.frame(method = 
+                                        rep("soil3",
+                                            nrow(soil_mat_3samp))),
+                         factor='method', 
+                         method='exact', conditioned=FALSE, plotit=FALSE)
+accum.soil3
+
+accum.both1 <- accumcomp(both_mat_1samp, 
+                         y=data.frame(method = 
+                                        rep("both1",
+                                            nrow(both_mat_1samp))),
+                         factor='method', 
+                         method='exact', conditioned=FALSE, plotit=FALSE)
+accum.both1
+
+accum.both2 <- accumcomp(both_mat_2samp, 
+                         y=data.frame(method = 
+                                        rep("both2",
+                                            nrow(both_mat_2samp))),
+                         factor='method', 
+                         method='exact', conditioned=FALSE, plotit=FALSE)
+accum.both2
+
+accum.both3 <- accumcomp(both_mat_3samp, 
+                         y=data.frame(method = 
+                                        rep("both3",
+                                            nrow(both_mat_3samp))),
+                         factor='method', 
+                         method='exact', conditioned=FALSE, plotit=FALSE)
+accum.both3
+
+# format results to plot the curves
+plot.data.roll1 <- data.frame(samples = c(accum.roll1[,,1]), 
+           s = c(accum.roll1[,,2]), 
+           sd = c(accum.roll1[,,3]),
+           method = "roll1")
+plot.data.roll2 <- data.frame(samples = c(accum.roll2[,,1]), 
+           s = c(accum.roll2[,,2]), 
+           sd = c(accum.roll2[,,3]),
+           method = "roll2")
+plot.data.roll3 <- data.frame(samples = c(accum.roll3[,,1]), 
+           s = c(accum.roll3[,,2]), 
+           sd = c(accum.roll3[,,3]),
+           method = "roll3")
+plot.data.soil1 <- data.frame(samples = c(accum.soil1[,,1]), 
+            s = c(accum.soil1[,,2]), 
+            sd = c(accum.soil1[,,3]),
+            method = "soil1")
+plot.data.soil2 <- data.frame(samples = c(accum.soil2[,,1]), 
+            s = c(accum.soil2[,,2]), 
+            sd = c(accum.soil2[,,3]),
+            method = "soil2")
+plot.data.soil3 <- data.frame(samples = c(accum.soil3[,,1]), 
+            s = c(accum.soil3[,,2]), 
+            sd = c(accum.soil3[,,3]),
+            method = "soil3")
+plot.data.both1 <- data.frame(samples = c(accum.both1[,,1]), 
+            s = c(accum.both1[,,2]), 
+            sd = c(accum.both1[,,3]),
+            method = "both1")
+plot.data.both2 <- data.frame(samples = c(accum.both2[,,1]), 
+            s = c(accum.both2[,,2]), 
+            sd = c(accum.both2[,,3]),
+            method = "both2")
+plot.data.both3 <- data.frame(samples = c(accum.both3[,,1]), 
+            s = c(accum.both3[,,2]), 
+            sd = c(accum.both3[,,3]),
+            method = "both3")
+
+plot.data <- plot.data.roll1 %>%
+  bind_rows(plot.data.roll2) %>%
+  bind_rows(plot.data.roll3) %>%
+  bind_rows(plot.data.soil1) %>%
+  bind_rows(plot.data.soil2) %>%
+  bind_rows(plot.data.soil3) %>%
+  bind_rows(plot.data.both1) %>%
+  bind_rows(plot.data.both2) %>%
+  bind_rows(plot.data.both3) %>%
+  mutate(method = as.factor(method),
+         Method = substr(method, 1, 4),
+         per_tree = paste0(substr(method, 5,5), 
+                           " samples per tree")) %>%
+  mutate(Method = case_when(Method == "both" ~ "Both",
+                            Method == "roll" ~ "Surface",
+                            Method == "soil" ~ "Soil"))
+  
+plot.data %>%
+ggplot() +
+  geom_ribbon(aes(x = samples, ymin = s-1*sd, 
+                  ymax = s+1*sd, fill = Method, group = method),
               alpha = 0.5) +  
-  geom_line(aes(x = samples, y = s, group = method), size = 1) +
-  scale_fill_manual(values = c("darkgreen", "steelblue")) +
+  geom_line(aes(x = samples, y = s, group = method, lty = Method), size = 1) +
+  scale_fill_manual(values = c("steelblue", "firebrick","darkgreen")) +
+  facet_wrap(~per_tree) +
   theme_bw() +
-  theme(text = element_text(size = 14)) +
-  labs(x = "No. samples", y = "No. families")
+  theme(text = element_text(size = 14),
+        legend.position = c(.92,.15),
+        legend.key.size = unit(.2, 'cm'),
+        legend.background = element_rect(fill = "transparent"),
+        strip.background = element_rect(fill = "white")) +
+  labs(x = "No. trees sampled", y = "No. mammal species",
+       fill = "Method")
 
 
-# ggsave("species_accumulation_curve_spray_roll_soil.png", 
-#        dpi = 600, width = 6, height = 4)
+ggsave("figures/species_accumulation_curve_roll_soil2.png",
+       dpi = 600, width = 6, height = 4)
 ```
