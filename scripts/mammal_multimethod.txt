@@ -1,0 +1,72 @@
+
+model {
+
+# Priors and model for params
+int.psi ~ dunif(0,1)         # Intercept of occupancy probability
+gamma0 <- logit(int.psi)       # same on logit scale
+
+int.theta ~ dunif(0,1)       # Intercept plot-level occupancy probability
+beta0 <- logit(int.theta)      # same on logit scale
+beta.method ~ dnorm(0, 0.1)   # sampling method covariate on logit(plot-level occupancy)
+
+int.p ~ dunif(0,1)           # Intercept detection probability
+alpha0 <- logit(int.p)         # same on logit scale
+alpha.device ~ dnorm(0, 0.1) # Device covariate on logit(detection)
+
+# Likelihood
+for (i in 1:n.trees){
+   # Occurrence at tree i
+   z[i] ~ dbern(psi[i])
+   logit(psi[i]) <- gamma0
+   for (j in 1:n.samps){
+      # Occurrence in sample j
+      a[i,j] ~ dbern(z[i] * theta[i,j])
+      logit(theta[i,j]) <- beta0 + beta.method * method[i,j]
+      for (k in 1:n.device){
+         # detection error process for device k
+         y[i,j,k] ~ dbern(a[i,j] * p[i,j,k])
+         logit(p[i,j,k]) <- alpha0 + alpha.device * device[i,j,k]
+      }
+   }
+ }
+
+# # Derived quantities
+# # vineyard-level occupancy
+# logit(psi.vineyards) <- gamma0 
+# # plot-level occupancy during survey round 1
+# logit(theta.round1) <- beta0 + beta.round 
+# # plot-level occupancy during survey round 2
+# logit(theta.round2) <- beta0
+# # detection probability for eDNA
+# logit(p.eDNA) <- alpha0 + alpha.device
+# # detection probability for visual surveys
+# logit(p.vis) <- alpha0
+# 
+# # Cumulative vineyard-level detection probability for 1-30 plots (eDNA / round 1)
+# for(i in 1:30){
+# p_vineyard_eDNA_r1[i] <- (1 - (1 - p.eDNA * theta.round1)^i)
+# }
+# 
+# # Cumulative vineyard-level detection probability for 1-30 plots (eDNA / round 2)
+# for(i in 1:30){
+# p_vineyard_eDNA_r2[i] <- (1 - (1 - p.eDNA * theta.round2)^i)
+# }
+# 
+# # Cumulative vineyard-level detection probability for 1-30 plots (visual / round 1)
+# for(i in 1:30){
+# p_vineyard_vis_r1[i] <- (1 - (1 - p.vis * theta.round1)^i)
+# }
+# 
+# # Cumulative vineyard-level detection probability for 1-30 plots (visual / round 2)
+# for(i in 1:30){
+# p_vineyard_vis_r2[i] <- (1 - (1 - p.vis * theta.round2)^i)
+# }
+# 
+# # Plots required to reach 95% certainty of detecting lanternflies within occupied vineyards
+# n_eDNA_r1 <- log(20) / (-log(1 - p.eDNA * theta.round1))
+# n_eDNA_r2 <- log(20) / (-log(1 - p.eDNA * theta.round2))
+# n_vis_r1 <- log(20) / (-log(1 - p.vis * theta.round1))
+# n_vis_r2 <- log(20) / (-log(1 - p.vis * theta.round2))
+
+}
+
