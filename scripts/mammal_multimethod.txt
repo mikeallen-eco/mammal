@@ -30,39 +30,32 @@ for (i in 1:n.trees){
    }
  }
 
-# # Derived quantities
-# # vineyard-level occupancy
-# logit(psi.vineyards) <- gamma0 
-# # plot-level occupancy during survey round 1
-# logit(theta.round1) <- beta0 + beta.round 
-# # plot-level occupancy during survey round 2
-# logit(theta.round2) <- beta0
-# # detection probability for eDNA
-# logit(p.eDNA) <- alpha0 + alpha.device
-# # detection probability for visual surveys
-# logit(p.vis) <- alpha0
+# Derived quantities
+# tree-level occupancy
+logit(psi.tree) <- gamma0
+# visit-level capture efficiency for roller
+logit(theta.roller) <- beta0 + beta.method
+# visit-level capture efficiency for soil
+logit(theta.soil) <- beta0
+# detection probability given capture for metabarcoding
+logit(p.meta) <- alpha0 + alpha.device
+# detection probability given capture for qPCR
+logit(p.qpcr) <- alpha0
+
+# Cumulative tree-level p for 1-30 visits (metabarcoding / roller)
+for(i in 1:30){
+p_tree_meta_roller[i] <- (1 - (1 - p.meta * theta.roller)^i)
+}
+
+# Cumulative tree-level p for 1-30 visits (qpcr / roller)
+for(i in 1:30){
+p_tree_qpcr_roller[i] <- (1 - (1 - p.qpcr * theta.roller)^i)
+}
+
+
 # 
-# # Cumulative vineyard-level detection probability for 1-30 plots (eDNA / round 1)
-# for(i in 1:30){
-# p_vineyard_eDNA_r1[i] <- (1 - (1 - p.eDNA * theta.round1)^i)
-# }
-# 
-# # Cumulative vineyard-level detection probability for 1-30 plots (eDNA / round 2)
-# for(i in 1:30){
-# p_vineyard_eDNA_r2[i] <- (1 - (1 - p.eDNA * theta.round2)^i)
-# }
-# 
-# # Cumulative vineyard-level detection probability for 1-30 plots (visual / round 1)
-# for(i in 1:30){
-# p_vineyard_vis_r1[i] <- (1 - (1 - p.vis * theta.round1)^i)
-# }
-# 
-# # Cumulative vineyard-level detection probability for 1-30 plots (visual / round 2)
-# for(i in 1:30){
-# p_vineyard_vis_r2[i] <- (1 - (1 - p.vis * theta.round2)^i)
-# }
-# 
-# # Plots required to reach 95% certainty of detecting lanternflies within occupied vineyards
+# # visits required to reach 95% certainty of detect at occ trees
+# still unmodified from vineyard SLF analysis
 # n_eDNA_r1 <- log(20) / (-log(1 - p.eDNA * theta.round1))
 # n_eDNA_r2 <- log(20) / (-log(1 - p.eDNA * theta.round2))
 # n_vis_r1 <- log(20) / (-log(1 - p.vis * theta.round1))

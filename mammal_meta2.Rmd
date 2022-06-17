@@ -183,8 +183,8 @@ y_mam <- y[,,c(1,3,5:12,14:15,18:21)]
 
 rm(tmp)
 ```
-# 11.7.2 Dorazio-Royle AHM 1 community model with covariates
-Just mammals
+# Dorazio-Royle community model with covariates
+Community occupancy model on only mammals. Code adapted from Kery and Royle, AMH 1 book, section 11.7.2.
 ```{r}
 
 # update n species
@@ -741,8 +741,8 @@ mean_reads_df %>%
             n = length(mean_reads),
             se = sd_mean/sqrt(n))
 ```
-
-# cumulative detection probability curves
+# cumulative detection probability - flying squirrel, metabarcoding
+Note: currently, to run this, you need to first create p_roller_mat etc up in the chunk where the detection probabilities are plotted by species.
 ```{r}
 roller_cumulative = matrix(NA, nrow = 6000, ncol = 15)
 niter = 6000
@@ -768,10 +768,11 @@ apply(roller_cumulative, 2,
   t() %>%
   as.data.frame() %>%
   rename(q2.5 = 1, q10 = 2, med = 3, q90 = 4, q97.5 = 5) %>%
-  mutate(Method = c(rep("Roller", 15), rep("Soil", 15)),
+  mutate(Method = c(rep("Roller\n(metabarcoding)", 15), rep("Soil\n(metabarcoding)", 15)),
          n = c(1:15, 1:15))
 
-fs_soil_roller %>%
+(flying_squirrel <- 
+    fs_soil_roller %>%
   ggplot() +
   geom_hline(yintercept = 0.95, lty = 2, 
              color = "darkgray") +
@@ -780,83 +781,28 @@ fs_soil_roller %>%
   geom_ribbon(aes(x = n, ymin = q2.5, ymax = q97.5,
                   group = Method), 
               alpha = 0.25, fill = "darkgray") +
-  geom_ribbon(aes(x = n, ymin = q10, ymax = q90,
-                  group = Method), 
-              alpha = 0.25, fill = "darkgray") +
+  # geom_ribbon(aes(x = n, ymin = q10, ymax = q90,
+  #                 group = Method), 
+  #             alpha = 0.25, fill = "darkgray") +
   theme_bw() +
   theme(text = element_text(size = 14),
-        legend.position = c(.8, 0.25)) +
+        legend.position = c(.7, 0.15),
+        legend.background = element_rect(fill = "transparent")) +
   scale_x_continuous(breaks = seq(2, 14, 2)) +
+  scale_y_continuous(limits = c(0,1)) +
   labs(y = "Cumulative detection probability",
        x = "Number of sampling visits",
-       title = "Flying Squirrel")
+       title = "Southern Flying Squirrel",
+       fill = "",
+       lty = "")
+)
 
 ggsave("figures/flysquirrel_cumulative_p.png", 
        width = 4, height = 4,
        dpi = 400)
 
 ```
-
-# species accumulation curve
-```{r}
-# Get 3,000 posterior samples of omega, and the mean and sd hyperparameters
-omega <- out10$sims.list$omega
-mu.lpsi <- out10$sims.list$mu.lpsi
-str( sd.lpsi <- out10$sims.list$sd.lpsi )    # Confirms we have 3,000 draws
-
-# compute posterior predictions of species occurrence probabilities
-nsites <- 21
-ndraws <- length(omega)
-Nmax <- 40
-psi <- matrix(NA, nrow=ndraws, ncol=Nmax)
-for (i in 1:ndraws) {
-  w <- rbinom(40, 1, omega[i])
-  psi[i,] <- w * plogis(rnorm(Nmax, mean = mu.lpsi[i], sd=sd.lpsi[i]))
-}
-
-# compute posterior predictions of species presence at each site
-z <- array(NA, dim=c(ndraws, Nmax, nsites))
-for (i in 1:ndraws) {
-  for (j in 1:Nmax) {
-    z[i,j, ] <- rbinom(nsites, size=1, prob=psi[i,j])
-  }
-}
-
-# compute posterior predictions of cumulative number of species present
-Ntot <- matrix(NA, nrow=ndraws, ncol=nsites)
-for (i in 1:ndraws) {
-  for (j in 1:nsites) {
-    zsum <- rep(NA, Nmax)
-    if (j>1) {
-      zsum <- apply(z[i, , 1:j], 1, sum)
-    }
-    else {
-      zsum <- z[i, , 1]
-    }
-    Ntot[i,j] <- sum(zsum>0)
-  }
-}                        # takes about 4 min
-
-# compute summary stats of species accumulation curve
-nSpeciesPresent <- matrix(NA, nrow=3, ncol=nsites)
-for (j in 1:nsites) {
-  x <- Ntot[,j]
-  nSpeciesPresent[1, j] <- mean(x)
-  nSpeciesPresent[2:3, j] <- quantile(x, probs=c(0.05, 0.95))
-}
-
-# Plot species accumulation curve
-ylim = c(min(nSpeciesPresent[2,]), max(nSpeciesPresent[3,]))
-plot(1:nsites, nSpeciesPresent[1,], pch=16, ylim=ylim, type="b",
-     xlab="Number of sample locations", ylab="Number of occurring species",
-     las=1, cex.axis=1.2, cex.lab=1.5, cex=1.2, frame = F)
-segments(1:nsites, nSpeciesPresent[2,], 1:nsites, nSpeciesPresent[3,])
-
-
-```
-
 # Heat trees
-NOTE: this currently excludes samples with no reads at all
 ```{r}
 library(taxa)
 library(metacoder)
@@ -946,7 +892,6 @@ g <- gridExtra::grid.arrange(roller, soil, ncol = 2)
 ggsave("figures/heat_tree_collage2.jpg", g,
        height = 9, width = 15, dpi = 400)
 ```
-
 # species lists by site
 ```{r}
 sites <- read.csv("data/sites.csv")
@@ -962,7 +907,6 @@ s %>%
 # how many trees (and visits per tree) for each method
 table(s$loc, s$site)
 ```
-
 # Species accumulation curves 
 Code adapted from insect paper analysis. Originally adapted from here: https://rpubs.com/Roeland-KINDT/694021
 and: http://biological-complexity.blogspot.com/2018/01/on-species-accumulation-curves.html
@@ -1137,8 +1081,11 @@ plot.data <- plot.data.roll1 %>%
          per_tree = paste0(substr(method, 5,5), 
                            " samples per tree")) %>%
   mutate(Method = case_when(Method == "both" ~ "Both",
-                            Method == "roll" ~ "Surface",
-                            Method == "soil" ~ "Soil"))
+                            Method == "roll" ~ "Roller",
+                            Method == "soil" ~ "Soil"),
+         per_tree = case_when(per_tree == "1 samples per tree" ~
+                                "1 sample per tree",
+                              TRUE ~ per_tree)) 
   
 plot.data %>%
 ggplot() +
@@ -1146,7 +1093,7 @@ ggplot() +
                   ymax = s+1*sd, fill = Method, group = method),
               alpha = 0.5) +  
   geom_line(aes(x = samples, y = s, group = method, lty = Method), size = 1) +
-  scale_fill_manual(values = c("steelblue", "firebrick","darkgreen")) +
+  scale_fill_manual(values = c("darkgreen", "steelblue", "firebrick")) +
   facet_wrap(~per_tree) +
   theme_bw() +
   theme(text = element_text(size = 14),
@@ -1158,7 +1105,7 @@ ggplot() +
        fill = "Method")
 
 
-ggsave("figures/species_accumulation_curve_roll_soil2.png",
+ggsave("figures/species_accumulation_curve_roll_soil4.png",
        dpi = 600, width = 6, height = 4)
 ```
 # Data formatting for multi-method occupancy modeling in JAGS
@@ -1231,7 +1178,7 @@ for(s in 1:n_methods){
 # note: metabarcoding matrix is same as y_mam[,,2]
 
 # rename array
-y = multi_array
+y_multi = multi_array
 
 # Create matrix of sampling method covariate for visit-level DNA "capture"
 method = method_mat 
@@ -1241,15 +1188,15 @@ method[is.na(method)] <- 99999
 device = array(c(rep(1, 126), rep(0, 126)), dim = c(21, 6, 2))
 
 # Bundle and summarize data set
-jags.data.multimethod <- list(y = y, 
-                           n.trees = nrow(y), 
-                           n.samps = ncol(y), 
-                           n.device = dim(y)[3],
+jags.data.multimethod <- list(y = y_multi, 
+                           n.trees = nrow(y_multi), 
+                           n.samps = ncol(y_multi), 
+                           n.device = dim(y_multi)[3],
                            method = method, 
                            device = device)
 ```
 # Define Bayesian multi-method occupancy model in JAGS
-This is the primary analysis used in the manuscript, which treats the three 'suspected false positives' as negatives. JAGS code modified from Kéry & Royle (2015, pp. 606-607).
+JAGS code modified from Kéry & Royle (2015, pp. 606-607).
 
 Kéry, M., & Royle, J. A. (2015). Applied Hierarchical Modeling in Ecology: Analysis of distribution, abundance and species richness in R and BUGS: Volume 1: Prelude and Static Models. London: Academic Press. 
 ```{r}
@@ -1286,39 +1233,32 @@ for (i in 1:n.trees){
    }
  }
 
-# # Derived quantities
-# # vineyard-level occupancy
-# logit(psi.vineyards) <- gamma0 
-# # plot-level occupancy during survey round 1
-# logit(theta.round1) <- beta0 + beta.round 
-# # plot-level occupancy during survey round 2
-# logit(theta.round2) <- beta0
-# # detection probability for eDNA
-# logit(p.eDNA) <- alpha0 + alpha.device
-# # detection probability for visual surveys
-# logit(p.vis) <- alpha0
+# Derived quantities
+# tree-level occupancy
+logit(psi.tree) <- gamma0
+# visit-level capture efficiency for roller
+logit(theta.roller) <- beta0 + beta.method
+# visit-level capture efficiency for soil
+logit(theta.soil) <- beta0
+# detection probability given capture for metabarcoding
+logit(p.meta) <- alpha0 + alpha.device
+# detection probability given capture for qPCR
+logit(p.qpcr) <- alpha0
+
+# Cumulative tree-level p for 1-30 visits (metabarcoding / roller)
+for(i in 1:30){
+p_tree_meta_roller[i] <- (1 - (1 - p.meta * theta.roller)^i)
+}
+
+# Cumulative tree-level p for 1-30 visits (qpcr / roller)
+for(i in 1:30){
+p_tree_qpcr_roller[i] <- (1 - (1 - p.qpcr * theta.roller)^i)
+}
+
+
 # 
-# # Cumulative vineyard-level detection probability for 1-30 plots (eDNA / round 1)
-# for(i in 1:30){
-# p_vineyard_eDNA_r1[i] <- (1 - (1 - p.eDNA * theta.round1)^i)
-# }
-# 
-# # Cumulative vineyard-level detection probability for 1-30 plots (eDNA / round 2)
-# for(i in 1:30){
-# p_vineyard_eDNA_r2[i] <- (1 - (1 - p.eDNA * theta.round2)^i)
-# }
-# 
-# # Cumulative vineyard-level detection probability for 1-30 plots (visual / round 1)
-# for(i in 1:30){
-# p_vineyard_vis_r1[i] <- (1 - (1 - p.vis * theta.round1)^i)
-# }
-# 
-# # Cumulative vineyard-level detection probability for 1-30 plots (visual / round 2)
-# for(i in 1:30){
-# p_vineyard_vis_r2[i] <- (1 - (1 - p.vis * theta.round2)^i)
-# }
-# 
-# # Plots required to reach 95% certainty of detecting lanternflies within occupied vineyards
+# # visits required to reach 95% certainty of detect at occ trees
+# still unmodified from vineyard SLF analysis
 # n_eDNA_r1 <- log(20) / (-log(1 - p.eDNA * theta.round1))
 # n_eDNA_r2 <- log(20) / (-log(1 - p.eDNA * theta.round2))
 # n_vis_r1 <- log(20) / (-log(1 - p.vis * theta.round1))
@@ -1329,13 +1269,13 @@ for (i in 1:n.trees){
 sink()
 ```
 # Run Bayesian multi-method occupancy model in JAGS
-This is the primary analysis used in the manuscript, which treats the three 'suspected false positives' as negatives. Run time is approximately 30 seconds with parallel = T.
+Run time is approximately 30 seconds with parallel = T.
 ```{r}
 # Initial values
-y_no_na <- y
+y_no_na <- y_multi
 y_no_na[is.na(y_no_na)] <- 0
 
-inits <- function() list(z = apply(y, 1, max, na.rm = T), 
+inits <- function() list(z = apply(y_multi, 1, max, na.rm = T), 
                          # inits for presence (z)
                          a = apply(y_no_na, c(1,2), max), 
                          # inits for availability (a)
@@ -1346,12 +1286,10 @@ inits <- function() list(z = apply(y, 1, max, na.rm = T),
                          alpha.device = rnorm(1, 2, 1))
 
 # Parameters monitored
-params <- c("gamma0", "beta0", "beta.method", "alpha0", "alpha.device")
-            
-            # "psi.vineyards", "theta.round1", "theta.round2",
-            # "p.eDNA", "p.vis", "p_vineyard_eDNA_r1", "p_vineyard_eDNA_r2",
-            # "p_vineyard_vis_r1", "p_vineyard_vis_r2", "n_eDNA_r1", "n_eDNA_r2",
-            # "n_vis_r1", "n_vis_r2")
+params <- c("gamma0", "beta0", "beta.method", "alpha0", "alpha.device",
+            "psi.tree", "theta.roller", "theta.soil",
+            "p.meta", "p.qpcr", "p_tree_meta_roller",
+            "p_tree_qpcr_roller")
 
 #####################################
 #### Run jags model
@@ -1377,31 +1315,75 @@ mammal_multimethod
 
 # Examine traceplots
 # jagsUI::traceplot(NJ_vineyards_multimethod)
+
+# saveRDS(mammal_multimethod, 
+#         "output/mammal_multimethod_mod_20220614.rds")
+
+```
+# Create cumulative detection prob figure (meta vs qPCR)
+Graph cumulative probability of detection in occupied trees with increasing survey effort. 
+```{r}
+# load multimethod occupancy model
+mammal_multimethod <- 
+  readRDS("output/mammal_multimethod_mod_20220614.rds")
+
+# load function to summarize posteriors
+source("scripts/sum_posts_function.R")
+
+# format data
+pv_all <- rbind.data.frame(
+sum_posts(mammal_multimethod$sims.list$p_tree_meta_roller, "Roller\n(metabarcoding)", "Roller"),
+sum_posts(mammal_multimethod$sims.list$p_tree_qpcr_roller, "Roller\n(qPCR)", "Roller")
+)
+
+(brown_bat <- 
+pv_all %>%
+  filter(n < 16) %>%
+  ggplot() +
+  geom_hline(yintercept = 0.95, lty = 2, 
+             color = "darkgray") +
+  # geom_ribbon(aes(x = n, ymin = q10, ymax = q90, fill = Method), 
+  #             alpha = 0.5, color = "transparent") +
+  geom_ribbon(aes(x = n, ymin = q2.5, ymax = q97.5, fill = Method), 
+              alpha = 0.25, color = "transparent") +
+  scale_fill_manual(values = c("darkgray", "darkgray")) +
+  geom_line(aes(x = n, y = q50, color = Method, 
+                linetype = Method), size = 0.75) +
+  scale_linetype_manual(values = c(1,4)) +
+  scale_color_manual(values = c("black", "black")) +
+  # facet_wrap(~Round) +
+  labs(y = "", 
+       x = "Number of sampling visits",
+       title = "Big Brown Bat",
+       lty = "",
+       color = "") +
+  theme_bw() +
+  guides(fill = "none") +
+  theme(text = element_text(size = 14),
+        legend.position = c(.7, 0.15),
+        legend.background = element_rect(fill = "transparent")) + 
+  scale_x_continuous(breaks = c(2,4,6,8,10,12,14)) +
+  scale_y_continuous(limits = c(0,1))
+)
+
+# ggsave("Fig_2_vineyard_cumulative_detection_Bayes.pdf", width = 7, height = 6, dpi = 600, device=cairo_pdf)
+
+# version with Flying Squirrel and Brown Bat side-by-side
+# dev.new(width = 10, height = 4)
+the_plot <- gridExtra::grid.arrange(flying_squirrel, 
+                                    brown_bat, 
+                                    ncol = 2)
+ggsave("figures/squirrel_bat_cummulative_p4.png", 
+       plot = the_plot, width = 7, 
+       height = 5, dpi = 400)
+```
+# Calculate stats on qPCR vs. metabarcoding (big brown bat)
+```{r}
+hist(mammal_multimethod$sims.list$p.qpcr)
+hist(mammal_multimethod$sims.list$p.meta)
+quantile(mammal_multimethod$sims.list$p.qpcr, c(0.025, 0.5, 0.975))
+quantile(mammal_multimethod$sims.list$p.meta, c(0.025, 0.5, 0.975))
+mammal_multimethod$q50$p.qpcr/mammal_multimethod$q50$p.meta # 3.4
+
 ```
 
-JAGS output for model 'scripts/mammal_multimethod.txt', generated by jagsUI.
-Estimates based on 3 chains of 50000 iterations,
-adaptation = 100 iterations (sufficient),
-burn-in = 10000 iterations and thin rate = 10,
-yielding 12000 total samples from the joint posterior. 
-MCMC ran in parallel for 0.309 minutes at time 2022-06-13 17:15:37.
-
-               mean     sd   2.5%    50%  97.5% overlap0     f  Rhat n.eff
-gamma0       -0.213  0.683 -1.333 -0.275  1.351     TRUE 0.681 1.002  5362
-beta0        -1.086  1.161 -3.217 -1.149  1.400     TRUE 0.852 1.002  1677
-beta.method   2.798  1.762  0.128  2.506  7.010    FALSE 0.981 1.000 12000
-alpha0        0.021  0.810 -1.377 -0.066  1.852     TRUE 0.464 1.002   903
-alpha.device -1.825  0.822 -3.558 -1.777 -0.337    FALSE 0.993 1.001  4192
-deviance     46.584 11.828 24.489 47.157 70.153    FALSE 1.000 1.003   704
-
-Successful convergence based on Rhat values (all < 1.1). 
-Rhat is the potential scale reduction factor (at convergence, Rhat=1). 
-For each parameter, n.eff is a crude measure of effective sample size. 
-
-overlap0 checks if 0 falls in the parameter's 95% credible interval.
-f is the proportion of the posterior with the same sign as the mean;
-i.e., our confidence that the parameter is positive or negative.
-
-DIC info: (pD = var(deviance)/2) 
-pD = 69.8 and DIC = 116.348 
-DIC is an estimate of expected predictive error (lower is better).
