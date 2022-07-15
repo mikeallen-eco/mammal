@@ -15,8 +15,6 @@ library(BiodiversityR) # also loads vegan
 '%notin%' <- Negate('%in%')
 
 # read in raw read data
-# m_raw <-
-#   readxl::read_xlsx("data/table.c10.complete.xlsx")
 m_raw <- 
   readxl::read_xlsx("data/table.c10.complete.leib.xlsx")
 
@@ -36,11 +34,12 @@ m_otu <- m_raw %>%
                             TRUE ~ "BLAST"),
          psim = case_when(psim <= 1 ~ psim*100,
                           TRUE ~ psim)) %>%
-# rule: if genus exists in region, keep; otherwise, exclude
+# exclude Gallus gallus and 4 genera not found in region
   filter(species %notin% c("Gallus gallus", 
                            "Pudu mephistophiles, Mazama rufina",
                            "Leuconotopicus albolarvatus"),
          grepl(species, pattern = "Emberiza") == FALSE) %>%
+  # clean up species names
   mutate(species = 
            case_when(species == "Euphagus cyanocephalus" ~ 
                        "Euphagus sp.",
@@ -58,11 +57,35 @@ m_otu <- m_raw %>%
                      TRUE ~ species)) %>%
   arrange(species) %>%
   left_join(tax, by = "species") %>%
-  select(common, starts_with("Sample"))
+  select(common, psim, starts_with("Sample"))
 
 m_otu_tax <- m_otu %>%
   left_join(tax) %>%
   mutate(lineage = paste0("r__Chordata;c__", class, ";o__", order, ";f__", fam, ";g__", genus, ";s__", sp))
+
+# make data version for archiving
+m_otu_archive <- m_otu_tax %>%
+  group_by(common) %>%
+  mutate(
+    num = 1:length(species)) %>%
+  ungroup() %>%
+  mutate(
+    num2 = ifelse(nchar(num)==1, paste0("0",num), num),
+    OTU_num = paste0(
+    gsub(species, pattern = " ", replacement = "_"),
+    "_", num2) ) %>%
+  select(OTU_num, common, order, class, family = fam, species, psim, 
+         starts_with("sample"))
+
+write.csv(m_otu_archive, "data/OTU_table.csv", row.names = F)
+rm(m_otu_archive)
+
+# removing psim (not needed anymore)
+m_otu <- m_otu %>%
+  select(-psim)
+
+m_otu_tax <- m_otu_tax %>%
+  select(-psim)
 
 # clean version summarized by species
 m_sp_temp <- m_otu %>%
@@ -963,10 +986,6 @@ table(s$loc, s$site)
 Code adapted from insect paper analysis. Originally adapted from here: https://rpubs.com/Roeland-KINDT/694021
 and: http://biological-complexity.blogspot.com/2018/01/on-species-accumulation-curves.html
 ```{r}
-library(BiodiversityR) # also loads vegan
-library(ggplot2)
-
-
 # Make empty martices for the spp accumulation curves
 roll_mat_1samp = matrix(NA, nrow = 21, ncol = 16)
 soil_mat_1samp = matrix(NA, nrow = 21, ncol = 16)
@@ -1497,6 +1516,8 @@ for(s in 1:n_spec){
 # where were soil samples taken?
 test_soil <- apply(m_sp_array_soil, c(1,2), sum)
 test_roll <- apply(m_sp_array_roll, c(1,2), sum)
+write.csv(test_soil, "output/soil_sum_reads.csv")
+write.csv(test_roll, "output/roll_sum_reads.csv")
 
 test_roll[is.na(test_soil)==F]
 test_roll[test_roll==0]
