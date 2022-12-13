@@ -4,7 +4,6 @@ author: "Mike Allen"
 date: "1/11/2022"
 output: html_document
 ---
-
 # Load libraries and data formatting
 ```{r}
 library(readxl)
@@ -259,444 +258,8 @@ y_mam.r <- y.r[,,c(3,5:9,11:12,14:15,18:21)]
 colnames(m_sp.r[,c(3,5:9,11:12,14:15,18:21)+4])
 apply(y_mam.r, 3, sum, na.rm = T)
 ```
-# Dorazio-Royle community model with covariates
-Community occupancy model on only mammals. Code adapted from Kery and Royle, AMH 1 book, section 11.7.2.
-```{r}
-
-# update n species
-nspec <- dim(y_mam)[3]
-# Augment data set: choose one of two different priors on Ntotal
-# nz <- 250                 # Use for vague prior on Ntotal: M = 395
-nz <- 40 - nspec         # Use for informative prior on Ntotal: M = ~40 ("dozens of mammal species" - NJDEP)
-
-
-# changing NA in method matrix to 0 so model can run 
-# (not actually missing)
-method_mat0 <- method_mat; method_mat0[is.na(method_mat0)] <- 0
-
-nsite <- n_trees; nrep <- n_visits
-yaug <- array(0, dim=c(nsite, nrep, nspec+nz)) # array with only zeroes
-yaug[,,1:nspec] <- y_mam      # copy into it the observed data
-
-# Create same NA pattern in augmented species as in the observed species
-missings <- is.na(yaug[,,1]) # e.g., third survey in high-elevation quads
-for(k in (nspec+1):(nspec+nz)){
-  yaug[,,k][missings] <- NA
-}
-
-# Bundle and summarize data
-str(win.data <- list(y = yaug, nsite = dim(y_mam)[1], nrep = dim(y_mam)[2], nspec = dim(y_mam)[3], nz = nz, M = nspec + nz, method = method_mat0) )
-
-
-# Specify model in BUGS language
-sink("scripts/DR_psi._p.method.txt")
-cat("
-model {
-
-# Priors
-omega ~ dunif(0,1)
-# Priors for species-specific effects in occupancy and detection
-for(k in 1:M){
-  lpsi[k] ~ dnorm(mu.lpsi, tau.lpsi)    # Hyperparams describe community
-  # betalpsi1[k] ~ dnorm(mu.betalpsi1, tau.betalpsi1)
-  # betalpsi2[k] ~ dnorm(mu.betalpsi2, tau.betalpsi2)
-  # betalpsi3[k] ~ dnorm(mu.betalpsi3, tau.betalpsi3)
-  lp[k] ~ dnorm(mu.lp, tau.lp)
-  betalp1[k] ~ dnorm(mu.betalp1, tau.betalp1)
-  # betalp2[k] ~ dnorm(mu.betalp2, tau.betalp2)
-  # betalp3[k] ~ dnorm(mu.betalp3, tau.betalp3)
-}
-
-# Hyperpriors
-# For the model of occupancy
-mu.lpsi ~ dnorm(0,0.01)
-tau.lpsi <- pow(sd.lpsi, -2)
-sd.lpsi ~ dunif(0,8)   # as always, bounds of uniform chosen by trial and error
-# mu.betalpsi1 ~ dnorm(0,0.1)
-# tau.betalpsi1 <- pow(sd.betalpsi1, -2)
-# sd.betalpsi1 ~ dunif(0, 4)
-# mu.betalpsi2 ~ dnorm(0,0.1)
-# tau.betalpsi2 <- pow(sd.betalpsi2, -2)
-# sd.betalpsi2 ~ dunif(0,2)
-# mu.betalpsi3 ~ dnorm(0,0.1)
-# tau.betalpsi3 <- pow(sd.betalpsi3, -2)
-# sd.betalpsi3 ~ dunif(0,2)
-
-# For the model of detection
-mu.lp ~ dnorm(0,0.1)
-tau.lp <- pow(sd.lp, -2)
-sd.lp ~ dunif(0, 2)
-mu.betalp1 ~ dnorm(0,0.1)
-tau.betalp1 <- pow(sd.betalp1, -2)
-sd.betalp1 ~ dunif(0,1)
-# mu.betalp2 ~ dnorm(0,0.1)
-# tau.betalp2 <- pow(sd.betalp2, -2)
-# sd.betalp2 ~ dunif(0,1)
-# mu.betalp3 ~ dnorm(0,0.1)
-# tau.betalp3 <- pow(sd.betalp3, -2)
-# sd.betalp3 ~ dunif(0,1)
-
-# Superpopulation process: Ntotal species sampled out of M available
-for(k in 1:M){
-   w[k] ~ dbern(omega)
-}
-
-# Ecological model for true occurrence (process model)
-for(k in 1:M){
-  for (i in 1:nsite) {
-    logit(psi[i,k]) <- lpsi[k] #+ betalpsi1[k] * ele[i] +
-      #betalpsi2[k] * pow(ele[i],2) + betalpsi3[k] * forest[i]
-    mu.psi[i,k] <- w[k] * psi[i,k]
-    z[i,k] ~ dbern(mu.psi[i,k])
-  }
-}
-
-# Observation model for replicated detection/nondetection observations
-for(k in 1:M){
-  for (i in 1:nsite){
-    for(j in 1:nrep){
-      logit(p[i,j,k]) <- lp[k] + betalp1[k] * method[i,j] #+
-        #betalp2[k] * pow(DAT[i,j],2) + betalp3[k] * DUR[i,j]
-      mu.p[i,j,k] <- z[i,k] * p[i,j,k]
-      y[i,j,k] ~ dbern(mu.p[i,j,k])
-    }
-  }
-}
-
-# Derived quantities
-#for(k in 1:M){
-#   Nocc.fs[k] <- sum(z[,k])       # Number of occupied sites among the 267
-#}
-for (i in 1:nsite){
-   Nsite[i] <- sum(z[i,])          # Number of occurring species at each site
-}
-n0 <- sum(w[(nspec+1):(nspec+nz)]) # Number of unseen species
-Ntotal <- sum(w[])                 # Total metacommunity size
-
-# Vectors to save (S for ?save?; discard posterior samples for
-# all minus 1 of the potential species to save disk space)
-# we do this for nz = 250 (i.e., M = 395)
-# lpsiS[1:(nspec+1)] <- lpsi[1:(nspec+1)]
-# betalpsi1S[1:(nspec+1)] <- betalpsi1[1:(nspec+1)]
-# betalpsi2S[1:(nspec+1)] <- betalpsi2[1:(nspec+1)]
-# betalpsi3S[1:(nspec+1)] <- betalpsi3[1:(nspec+1)]
-# lpS[1:(nspec+1)] <- lp[1:(nspec+1)]
-# betalp1S[1:(nspec+1)] <- betalp1[1:(nspec+1)]
-# betalp2S[1:(nspec+1)] <- betalp2[1:(nspec+1)]
-# betalp3S[1:(nspec+1)] <- betalp3[1:(nspec+1)]
-}
-",fill = TRUE)
-sink()
-
-# Initial values
-wst <- rep(1, nspec+nz)                   # Simply set everybody at occurring
-zst <- array(1, dim = c(nsite, nspec+nz)) # ditto
-inits <- function() list(z = zst, w = wst, lpsi = rnorm(n = nspec+nz), betalpsi1 = rnorm(n = nspec+nz), betalpsi2 = rnorm(n = nspec+nz), betalpsi3 = rnorm(n = nspec+nz), lp = rnorm(n = nspec+nz), betalp1 = rnorm(n = nspec+nz), betalp2 = rnorm(n = nspec+nz), betalp3 = rnorm(n = nspec+nz))
-
-# Set 1
-params1 <- c("omega", "mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "mu.lp", "sd.lp", "mu.betalp1", "sd.betalp1", "mu.betalp2", "sd.betalp2", "mu.betalp3", "sd.betalp3", "Ntotal", "Nsite")
-
-# MCMC settings
-ni <- 30000   ;   nt <- 10   ;   nb <- 10000   ;   nc <- 3
-
-# Run JAGS, check convergence and summarize posteriors
-DR_psi._p.method_partA <- jagsUI::jags(win.data, inits, params1, 
-               "scripts/DR_psi._p.method.txt", 
-               n.chains = nc, n.thin = nt, n.iter = ni, 
-               n.burnin = nb, parallel = TRUE)
-DR_psi._p.method_partA
-dev.new(6,6); plot(DR_psi._p.method_partA)
-
-par(mfrow = c(2, 2))
-jagsUI::traceplot(DR_psi._p.method_partA, c(c("omega", "mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "mu.lp", "sd.lp", "mu.betalp1", "sd.betalp1", "mu.betalp2", "sd.betalp2", "mu.betalp3", "sd.betalp3", "Ntotal")) )
-# saveRDS(DR_psi._p.method_partA,
-#         "output/DR_psi._p.method_partA2.rds")
-DR_psi._p.method_partA <-
-  readRDS("output/DR_psi._p.method_partA2.rds")
-
-# Set 2
-params2 <- c("mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "lpsi", "betalpsi1", "betalpsi2", "betalpsi3", "lp", "betalp1", "betalp2", "betalp3", "z", "w")
-ni <- 30000   ;   nt <- 10   ;   nb <- 10000   ;   nc <- 3
-DR_psi._p.method_partB <- jagsUI::jags.basic(win.data, inits, params2, "scripts/DR_psi._p.method.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
-# saveRDS(DR_psi._p.method_partB,
-#         "output/DR_psi._p.method_partB2.rds")
-DR_psi._p.method_partB <-
-  readRDS("output/DR_psi._p.method_partB_leibii.rds")
-
-library(coda)
-# Put output from 3 chains into a matrix
-all10 <- as.matrix(DR_psi._p.method_partB) 
-# summary(DR_psi._p.method_partB)            # May take a loooong time
-# gelman.diag(DR_psi._p.method_partB)        # ditto
-
-
-# Comparison of main hyperparameters when M = 215 and with M = 395
-# (not all code to produce this output is shown)
-DR_psi._p.method_partA$summary[1:17,c(1:3, 7)]
-
-
-out10 <- DR_psi._p.method_partA
-
-
-
-# Visualize covariate mean relationships for the average species
-# Get covariate values for prediction
-o.method <- c(1,0)               
-
-# Predict mean occupancy and also detection by method
-# Put all predictions into a single object
-str( tmp <- out10$sims.list )              # grab MCMC samples
-nsamp <- length(tmp[[1]])    # number of mcmc samples
-predC <- array(NA, dim = c(2, nsamp, 2)) # "C" for 'community mean'
-for(i in 1:nsamp){
-  predC[,i,1] <- plogis(tmp$mu.lpsi[i])
-  predC[,i,2] <- plogis(tmp$mu.lp[i] + tmp$mu.betalp1[i] * o.method)
-}
-
-# Get posterior means and 95% CRIs and plot (Fig. 11?17)
-pmC <- apply(predC, c(1,3), mean)
-criC <- apply(predC, c(1,3), function(x) quantile(x, prob = c(0.025, 0.975)))
-
-# these are the "community mean" psi and p
-mean_preds <-
-  data.frame(
-    metric = c(
-      "mean occupancy",
-      "Roller",
-      "Soil"
-    ),
-    mean = c(pmC[1, 1], pmC[, 2]),
-    q2.5 = c(criC[1, 1, 1], criC[1, , 2]),
-    q97.5 = c(criC[2, 1, 1], criC[2, , 2])
-  )
-#           metric       mean        q2.5     q97.5
-# 1 mean occupancy 0.26763615 0.005197039 0.9022648
-# 2         Roller 0.18360537 0.048300995 0.3842602
-# 3           Soil 0.05545223 0.013561076 0.1310264
-
-str(all10)                    # look at the MCMC output
-pm <- apply(all10, 2, mean)    # Get posterior means and 95% CRIs
-cri <- apply(all10, 2, function(x) quantile(x, prob = c(0.025, 0.975))) # CRIs
-
-p_roller_mat <- matrix(NA, ncol = 16, nrow = 6000)
-p_soil_mat <- matrix(NA, ncol = 16, nrow = 6000)
-psi_mat <- matrix(NA, ncol = 16, nrow = 6000)
-for(i in 1:16){
-  betalp1 <- all10[,i]
-  lp <- all10[,i+41]
-  lpsi <- all10[,i+81]
-  p_roller_mat[,i] <- plogis(lp + betalp1)
-  p_soil_mat[,i] <- plogis(lp)
-  psi_mat[,i] <- plogis(lpsi)
-}
-
-# p Beta plot data for
-naive_occ <- apply(apply(m_sp_detnon[, , c(1,3,5:12,14:15,18:21)], c(1, 3), max, na.rm = T), 2, sum)/21
-
-sp_beta_plot <- data.frame(par = names(pm)[1:16], beta = pm[1:16],
-           beta_q2.5 = cri[1,][1:16],
-           beta_q97.5 = cri[2,][1:16],
-           p_roller = apply(p_roller_mat, 2, mean),
-           p_roller_q2.5 = 
-             apply(p_roller_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
-           p_roller_q97.5 = 
-             apply(p_roller_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,],
-           p_soil = apply(p_soil_mat, 2, mean),
-           p_soil_q2.5 = 
-             apply(p_soil_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
-           p_soil_q97.5 = 
-             apply(p_soil_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,],
-           psi = apply(psi_mat, 2, mean),
-           psi_q2.5 = 
-             apply(psi_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
-           psi_q97.5 = 
-             apply(psi_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,]) %>%
-  mutate(species = colnames(m_sp)[c(1,3,5:12,14:15,18:21)+4]) %>%
-  mutate(species = gsub(species, 
-                        pattern = "_", replacement = " ")) %>%
-  mutate(species = forcats::fct_reorder(species, p_roller),
-         naive_occ = naive_occ,
-         arboreal = c("*", "*", "", "", "", "", "*", "", 
-                      "*", "*", "*", "*", "", "", "*", ""),
-         species = paste0(species, arboreal),
-         species = forcats::fct_reorder(species, p_roller))
-
-# Plot effect size of roller vs. soil by species
-(beta_plot <- sp_beta_plot %>%
-  ggplot() +
-  geom_vline(xintercept = DR_psi._p.method_partA$summary[6,1],
-             color = "red") +
-  geom_vline(xintercept = DR_psi._p.method_partA$summary[6,c(3)],
-             color = "red", lty = 2) +
-  geom_vline(xintercept = DR_psi._p.method_partA$summary[6,c(7)],
-             color = "red", lty = 2) +
-  geom_errorbar(aes(xmin = beta_q2.5, 
-                    xmax = beta_q97.5, y = species),
-                width = 0, color = "black", size = .75) +
-  geom_point(aes(x = beta, y = species), size = 3.5) +
-  geom_vline(xintercept = 0, lty = 3) +
-  theme_bw() +
-  theme(text = element_text(size = 15)) +
-  labs(x = sprintf('\U03B2 (roller vs. soil)'), y = "")
-)
-
-# ggsave("figures/roller_vs_soil_effect_size3.png", height = 5,
-#        width = 7, dpi = 400)
-
-# Plot phat for roller vs. soil by species
-sp_p_plot <- sp_beta_plot %>%
-  select(species, starts_with("p_r")) %>%
-  rename(p_soil = p_roller, p_soil_q2.5 = p_roller_q2.5,
-         p_soil_q97.5 = p_roller_q97.5) %>%
-  bind_rows(select(sp_beta_plot, species, starts_with("p_s"))) %>%
-  rename(p = 2, q2.5 = 3, q97.5 = 4) %>%
-  mutate(Method = c(rep("Roller", 16), rep("Soil", 16)))
-
-(p_plot <- sp_p_plot %>%
-  ggplot() +
-  geom_errorbar(aes(xmin = q2.5, 
-                    xmax = q97.5, y = species, color = Method),
-                width = 0, size = .75,
-             position = position_dodge(width = .75)) +
-  geom_point(aes(x = p, y = species, shape = Method), 
-             size = 3.5, fill = "white",
-             # color = sp_p_plot$soil_color,
-             position = position_dodge(width = .75)) +
-  scale_shape_manual(values = c(16, 21)) +
-  scale_color_manual(values = c("black", "black")) +
-  #cowplot::theme_cowplot() +
-  theme_bw() +
-  theme(text = element_text(size = 15),
-        legend.position = c(0.81,0.13),
-        legend.background = element_rect(color = "black"),
-        axis.text.y = element_blank()) +
-  labs(x = "Detection probability", y = "")
-)
-
-# ggsave("figures/roller_vs_soil_p.png", height = 5,
-#        width = 7, dpi = 400)
-
-# Plot psi by species
-(psi_plot <- sp_beta_plot %>%
-  ggplot() +
-  geom_errorbar(aes(xmin = psi_q2.5, 
-                    xmax = psi_q97.5, y = species),
-                width = 0, color = "black", size = .75) +
-  geom_point(aes(x = psi, y = species), size = 3.5) +
-  geom_point(aes(x = naive_occ, y = species), size = 3.5, shape = "x", color = "red") +
-  theme_bw() +
-  theme(text = element_text(size = 15),
-        axis.text.y = element_blank()) +
-  labs(x = "Occupancy", y = "")
-)
-
-# ggsave("figures/psi_by_species.png", height = 5,
-#        width = 7, dpi = 400)
-
-# version with psi included
-# the_plot <- gridExtra::grid.arrange(beta_plot, p_plot, psi_plot, ncol = 3)
-# ggsave("figures/occ_plot4_leibii.png", plot = the_plot, width = 11, height = 5, dpi = 400)
-
-# version without psi included
-dev.new(width = 7, height = 5)
-the_plot <- gridExtra::grid.arrange(beta_plot, p_plot, ncol = 2)
-# ggsave("figures/occ_plot5e.png", plot = the_plot, width = 7, height = 5, dpi = 400)
-
-# Survey duration (Fig. 11-20 right)
-plot(pm[431:575], 1:145, xlim = c(-0.5, 1), xlab = "Parameter estimate", ylab = "Species number", main = "Effect of survey duration on detection", pch = 16)
-abline(v = 0, lwd = 2, col = "black")
-segments(cri[1, 431:575], 1:145, cri[2, 431:575], 1:145, col = "grey", lwd = 1)
-sig3 <- (cri[1, 431:575] * cri[2, 431:575]) > 0
-segments(cri[1, 431:575][sig3 == 1], (1:145)[sig3 == 1], cri[2, 431:575][sig3 == 1], (1:145)[sig3 == 1], col = "blue", lwd = 2)
-abline(v = out101$summary[15,1], lwd = 3, col = "red")
-abline(v = out101$summary[15, c(3,7)], lwd = 3, col = "red", lty = 2)
-
-
-
-# Effects of elevation (linear and quadratic) and of forest on occupancy
-# par(mfrow = c(1,3), cex.lab = 1.3, cex.axis = 1.3) # can do all in one
-# Effect of elevation (linear) on occupancy probability (Fig. 11-21)
-plot(pm[646:790], 1:145, xlim = c(-8, 8), xlab = "Parameter estimate", ylab = "Species number", main = "Effect of elevation (linear) on occupancy", pch = 16)
-abline(v = 0, lwd = 2, col = "black")
-segments(cri[1, 646:790], 1:145, cri[2, 646:790], 1:145, col = "grey", lwd = 1)
-sig4 <- (cri[1, 646:790] * cri[2, 646:790]) > 0
-segments(cri[1, 646:790][sig4 == 1], (1:145)[sig4 == 1], cri[2, 646:790][sig4 == 1], (1:145)[sig4 == 1], col = "blue", lwd = 2)
-abline(v = out101$summary[3,1], lwd = 3, col = "red")
-abline(v = out101$summary[3,c(3,7)], lwd = 3, col = "red", lty = 2)
-
-
-# Effect of elevation (quadratic) on occupancy probability (Fig. 11-22)
-plot(pm[861:1005], 1:145, xlim = c(-4, 2), xlab = "Parameter estimate", ylab = "Species number", main = "Effect of elevation (quadratic) on occupancy", pch = 16)
-abline(v = 0, lwd = 2, col = "black")
-segments(cri[1, 861:1005], 1:145, cri[2, 861:1005], 1:145, col = "grey", lwd=1)
-sig5 <- (cri[1, 861:1005] * cri[2, 861:1005]) > 0
-segments(cri[1, 861:1005][sig5 == 1], (1:145)[sig5 == 1], cri[2, 861:1005][sig5 == 1], (1:145)[sig5 == 1], col = "blue", lwd = 2)
-abline(v = out101$summary[5,1], lwd = 3, col = "red")
-abline(v = out101$summary[5,c(3,7)], lwd = 3, col = "red", lty = 2)
-
-
-# Effect of forest (linear) on occupancy probability (Fig. 11-23)
-plot(pm[1076:1220], 1:145, xlim = c(-3, 4), xlab = "Parameter estimate", ylab = "Species number", main = "Effect of forest cover on occupancy", pch = 16)
-abline(v = 0, lwd = 2, col = "black")
-segments(cri[1, 1076:1220], 1:145, cri[2, 1076:1220],1:145, col = "grey", lwd=1)
-sig6 <- (cri[1, 1076:1220] * cri[2, 1076:1220]) > 0
-segments(cri[1, 1076:1220][sig6 == 1], (1:145)[sig6 == 1], cri[2, 1076:1220][sig6 == 1], (1:145)[sig6 == 1], col = "blue", lwd = 2)
-abline(v = out101$summary[7,1], lwd = 3, col = "red")
-abline(v = out101$summary[7,c(3,7)], lwd = 3, col = "red", lty = 2)
-negsig6 <- (cri[1, 1076:1220] < 0 & cri[2, 1076:1220] < 0) == 1 # sig negative
-possig6 <- (cri[1, 1076:1220] > 0 & cri[2, 1076:1220] > 0) == 1 # sig positive
-
-
-# Predict detection for date and duration and occupancy for elevation and forest
-# for each of the 145 observed species
-predS <- array(NA, dim = c(500, nspec, 4))   # covariate value x species x response, "S" for 'species'
-p.coef <- cbind(lp=pm[1292:1436], betalp1 = pm[1:145], betalp2 = pm[216:360], betalp3 = pm[431:575])
-psi.coef <- cbind(lpsi=pm[1507:1651], betalpsi1 = pm[646:790], betalpsi2 = pm[861:1005], betalpsi3 = pm[1076:1220])
-
-for(i in 1:nspec){          # Loop over 145 observed species
-  predS[,i,1] <- plogis(p.coef[i,1] + p.coef[i,2] * dat.pred +
-                          p.coef[i,3] * dat.pred^2 )     # p ~ date
-  predS[,i,2] <- plogis(p.coef[i,1] + p.coef[i,4] * dur.pred) # p ~ duration
-  predS[,i,3] <- plogis(psi.coef[i,1] + psi.coef[i,2] * ele.pred +
-                          psi.coef[i,3] * ele.pred^2 )     # psi ~ elevation
-  predS[,i,4] <- plogis(psi.coef[i,1] + psi.coef[i,4] * for.pred) # psi ~ forest
-}
-
-# Plots for detection probability and survey date and duration (Fig. 11-24)
-par(mfrow = c(1,2), cex.lab = 1.3, cex.axis = 1.3)
-plot(o.dat, predS[,1,1], lwd = 3, type = 'l', lty = 1, frame = F,
-     ylim = c(0, 1), xlab = "Survey date (1 = 1 April)",
-     ylab = "Detection probability")
-for(i in 2:145){
-  lines(o.dat, predS[,i,1], col = i, lwd = 3)
-}
-
-plot(o.dur, predS[,1,2], lwd = 3, type = 'l', lty = 1, frame = F,
-     ylim = c(0, 1), xlab = "Survey duration (min)",
-     ylab = "Detection probability")
-for(i in 2:145){
-  lines(o.dur, predS[,i,2], col = i, lwd = 3)
-}
-
-
-# Plots for occupancy probability and elevation and forest cover (Fig. 11-25)
-par(mfrow = c(1,2), cex.lab = 1.3, cex.axis = 1.3)
-plot(o.ele, predS[,1,3], lwd = 3, type = 'l', lty = 1, frame = F,
-     ylim = c(0, 1), xlab = "Elevation (m a.s.l.)",
-     ylab = "Occupancy probability")
-for(i in 2:145){
-  lines(o.ele, predS[,i,3], col = i, lwd = 3)
-}
-
-plot(o.for, predS[,1,4], lwd = 3, type = 'l', lty = 1, frame = F,
-     ylim = c(0, 1), xlab = "Forest cover (%)", ylab = "Occupancy probability")
-for(i in 2:145){
-  lines(o.for, predS[,i,4], col = i, lwd = 3)
-}
-
-```
-
-# Plot reads
+# Create Fig. 1B - read counts
+Also, tally reads for different groups.
 ```{r}
 mean_reads <- m_sp %>%
   group_by(method) %>%
@@ -705,7 +268,6 @@ mean_reads <- m_sp %>%
   select(-samp_num, -method) %>%
   t() %>%
   as.data.frame()
-
 
 # count samples in each method (R = 59, S = 35)
 n_samples <- m_sp %>%
@@ -816,71 +378,13 @@ mean_reads_df %>%
             n = length(mean_reads),
             se = sd_mean/sqrt(n))
 ```
-# cumulative detection probability - flying squirrel, metabarcoding
-Note: currently, to run this, you need to first create p_roller_mat etc up in the chunk where the detection probabilities are plotted by species.
+# Create Fig. 2 - heat trees
 ```{r}
-roller_cumulative = matrix(NA, nrow = 6000, ncol = 15)
-niter = 6000
-for(i in 1:niter){
-  for(j in 1:15){
-  roller_cumulative[i,j] <- 1-(1-p_roller_mat[i,9])^j
-  }
-}
-
-soil_cumulative = matrix(NA, nrow = 6000, ncol = 15)
-niter = 6000
-for(i in 1:niter){
-  for(j in 1:15){
-  soil_cumulative[i,j] <- 1-(1-p_soil_mat[i,9])^j
-  }
-}
-
-fs_soil_roller <- 
-apply(roller_cumulative, 2, 
-      function(x) quantile(x, c(0.025, 0.1, 0.5, 0.9, 0.975))) %>%
-  cbind(apply(soil_cumulative, 2, 
-      function(x) quantile(x, c(0.025, 0.1, 0.5, 0.9, 0.975)))) %>%
-  t() %>%
-  as.data.frame() %>%
-  rename(q2.5 = 1, q10 = 2, med = 3, q90 = 4, q97.5 = 5) %>%
-  mutate(Method = c(rep("Roller\n(metabarcoding)", 15), rep("Soil\n(metabarcoding)", 15)),
-         n = c(1:15, 1:15))
-
-(flying_squirrel <- 
-    fs_soil_roller %>%
-  ggplot() +
-  geom_hline(yintercept = 0.95, lty = 2, 
-             color = "darkgray") +
-  geom_line(aes(x = n, y = med, lty = Method),
-            size = .75) +
-  geom_ribbon(aes(x = n, ymin = q2.5, ymax = q97.5,
-                  group = Method), 
-              alpha = 0.25, fill = "darkgray") +
-  # geom_ribbon(aes(x = n, ymin = q10, ymax = q90,
-  #                 group = Method), 
-  #             alpha = 0.25, fill = "darkgray") +
-  theme_bw() +
-  theme(text = element_text(size = 14),
-        legend.position = c(.7, 0.15),
-        legend.background = element_rect(fill = "transparent")) +
-  scale_x_continuous(breaks = seq(2, 14, 2)) +
-  scale_y_continuous(limits = c(0,1)) +
-  labs(y = "Cumulative detection probability",
-       x = "Number of sampling visits",
-       title = "Southern Flying Squirrel",
-       fill = "",
-       lty = "")
-)
-
-ggsave("figures/flysquirrel_cumulative_p.png", 
-       width = 4, height = 4,
-       dpi = 400)
-
-```
-# Heat trees
-```{r}
+# load packages
 library(taxa)
 library(metacoder)
+
+# format data for heat trees
 use_common_name = 1
 
 if(use_common_name == 1){
@@ -919,11 +423,7 @@ obj$data$tax_occ$num_methods <- (obj$data$tax_occ$S>0) +
 obj$data$tax_abund$All_per <- (obj$data$tax_abund$Soil_per +
   obj$data$tax_abund$Roller_per)/2
 
-
-```
-# Make heat trees
-```{r}
-# Soil
+# Make soil heat tree
 set.seed(1) # This makes the plot appear the same each time it is run 
 (soil <- heat_tree(obj, 
           node_label = taxon_names,
@@ -931,7 +431,7 @@ set.seed(1) # This makes the plot appear the same each time it is run
           node_color = 100*obj$data$tax_occ$S/23, 
           node_color_digits = 2,
           node_color_trans = "linear",
-          # node_color_range = wesanderson::wes_palette("Zissou1"),
+          node_label_size_range = c(0.025, 0.05),
           node_color_interval = c(0,100),
           node_size_axis_label = "Mean reads / sample",
           node_color_axis_label = "% samples with reads",
@@ -943,7 +443,7 @@ set.seed(1) # This makes the plot appear the same each time it is run
  # ggsave("figures/Soil_heattree_abund2.jpg",
  # width = 7, height = 7, dpi = 400)
 
-# Roller
+# Make roller heat tree
 set.seed(1) # This makes the plot appear the same each time it is run 
 (roller <- heat_tree(obj, 
           node_label = taxon_names,
@@ -951,6 +451,7 @@ set.seed(1) # This makes the plot appear the same each time it is run
           node_color = 100*obj$data$tax_occ$R/46,
           node_color_digits = 2,
           node_color_trans = "linear",
+          node_label_size_range = c(0.025, 0.05),
           node_color_interval = c(0,100),
           node_size_axis_label = "Mean reads / sample",
           node_color_axis_label = "% samples with reads",
@@ -964,26 +465,11 @@ set.seed(1) # This makes the plot appear the same each time it is run
 # 2-panel figure
 g <- gridExtra::grid.arrange(roller, soil, ncol = 2)
 
-ggsave("figures/heat_tree_collage2.jpg", g,
+ggsave("figures/Fig2_heat_tree_collage_2.5_5pct.jpg", g,
        height = 9, width = 15, dpi = 400)
 ```
-# species lists by site
-```{r}
-sites <- read.csv("data/sites.csv")
-
-s <- m_sp %>%
-  left_join(sites)
-
-s %>%
-  group_by(loc, method) %>%
-  summarise(across(American_Red_Squirrel:`Yellow-rumped_Warbler`, list(mean, length, function(x) 100*sum(x>0)/length(x)))) %>%
-  t()
-
-# how many trees (and visits per tree) for each method
-table(s$loc, s$site)
-```
-# Species accumulation curves 
-Code adapted from insect paper analysis. Originally adapted from here: https://rpubs.com/Roeland-KINDT/694021
+# Create Fig. 3 - mammal species accumulation curves 
+Code adapted from: https://rpubs.com/Roeland-KINDT/694021
 and: http://biological-complexity.blogspot.com/2018/01/on-species-accumulation-curves.html
 ```{r}
 # Make empty martices for the spp accumulation curves
@@ -1176,8 +662,413 @@ ggplot() +
        fill = "Method")
 
 
-ggsave("figures/species_accumulation_curve_roll_soil4.png",
+ggsave("figures/Fig3_species_accumulation_curve_roll_soil4.png",
        dpi = 600, width = 6, height = 4)
+```
+# Run Dorazio-Royle community occupancy model
+Community occupancy model on only mammals. Code adapted from Kery and Royle, AMH 1 book, section 11.7.2.
+```{r}
+# update n species
+nspec <- dim(y_mam)[3]
+
+# Augment data set: choose one of two different priors on Ntotal
+nz <- 40 - nspec         
+# Use for informative prior on Ntotal
+# M = ~40 ("dozens of mammal species" - NJDEP)
+
+# changing NA in method matrix to 0 so model can run 
+# (not actually missing)
+method_mat0 <- method_mat; method_mat0[is.na(method_mat0)] <- 0
+
+nsite <- n_trees; nrep <- n_visits
+yaug <- array(0, dim=c(nsite, nrep, nspec+nz)) # array with only zeroes
+yaug[,,1:nspec] <- y_mam      # copy into it the observed data
+
+# Create same NA pattern in augmented species as in the observed species
+missings <- is.na(yaug[,,1]) 
+for(k in (nspec+1):(nspec+nz)){
+  yaug[,,k][missings] <- NA
+}
+
+# Bundle and summarize data
+str(win.data <- list(y = yaug, nsite = dim(y_mam)[1], nrep = dim(y_mam)[2], nspec = dim(y_mam)[3], nz = nz, M = nspec + nz, method = method_mat0) )
+
+# Specify model in BUGS language
+sink("scripts/DR_psi._p.method.txt")
+cat("
+model {
+
+# Priors
+omega ~ dunif(0,1)
+# Priors for species-specific effects in occupancy and detection
+for(k in 1:M){
+  lpsi[k] ~ dnorm(mu.lpsi, tau.lpsi)    # Hyperparams describe community
+  # betalpsi1[k] ~ dnorm(mu.betalpsi1, tau.betalpsi1)
+  # betalpsi2[k] ~ dnorm(mu.betalpsi2, tau.betalpsi2)
+  # betalpsi3[k] ~ dnorm(mu.betalpsi3, tau.betalpsi3)
+  lp[k] ~ dnorm(mu.lp, tau.lp)
+  betalp1[k] ~ dnorm(mu.betalp1, tau.betalp1)
+  # betalp2[k] ~ dnorm(mu.betalp2, tau.betalp2)
+  # betalp3[k] ~ dnorm(mu.betalp3, tau.betalp3)
+}
+
+# Hyperpriors
+# For the model of occupancy
+mu.lpsi ~ dnorm(0,0.01)
+tau.lpsi <- pow(sd.lpsi, -2)
+sd.lpsi ~ dunif(0,8)   # as always, bounds of uniform chosen by trial and error
+# mu.betalpsi1 ~ dnorm(0,0.1)
+# tau.betalpsi1 <- pow(sd.betalpsi1, -2)
+# sd.betalpsi1 ~ dunif(0, 4)
+# mu.betalpsi2 ~ dnorm(0,0.1)
+# tau.betalpsi2 <- pow(sd.betalpsi2, -2)
+# sd.betalpsi2 ~ dunif(0,2)
+# mu.betalpsi3 ~ dnorm(0,0.1)
+# tau.betalpsi3 <- pow(sd.betalpsi3, -2)
+# sd.betalpsi3 ~ dunif(0,2)
+
+# For the model of detection
+mu.lp ~ dnorm(0,0.1)
+tau.lp <- pow(sd.lp, -2)
+sd.lp ~ dunif(0, 2)
+mu.betalp1 ~ dnorm(0,0.1)
+tau.betalp1 <- pow(sd.betalp1, -2)
+sd.betalp1 ~ dunif(0,1)
+# mu.betalp2 ~ dnorm(0,0.1)
+# tau.betalp2 <- pow(sd.betalp2, -2)
+# sd.betalp2 ~ dunif(0,1)
+# mu.betalp3 ~ dnorm(0,0.1)
+# tau.betalp3 <- pow(sd.betalp3, -2)
+# sd.betalp3 ~ dunif(0,1)
+
+# Superpopulation process: Ntotal species sampled out of M available
+for(k in 1:M){
+   w[k] ~ dbern(omega)
+}
+
+# Ecological model for true occurrence (process model)
+for(k in 1:M){
+  for (i in 1:nsite) {
+    logit(psi[i,k]) <- lpsi[k] #+ betalpsi1[k] * ele[i] +
+      #betalpsi2[k] * pow(ele[i],2) + betalpsi3[k] * forest[i]
+    mu.psi[i,k] <- w[k] * psi[i,k]
+    z[i,k] ~ dbern(mu.psi[i,k])
+  }
+}
+
+# Observation model for replicated detection/nondetection observations
+for(k in 1:M){
+  for (i in 1:nsite){
+    for(j in 1:nrep){
+      logit(p[i,j,k]) <- lp[k] + betalp1[k] * method[i,j] #+
+        #betalp2[k] * pow(DAT[i,j],2) + betalp3[k] * DUR[i,j]
+      mu.p[i,j,k] <- z[i,k] * p[i,j,k]
+      y[i,j,k] ~ dbern(mu.p[i,j,k])
+    }
+  }
+}
+
+# Derived quantities
+#for(k in 1:M){
+#   Nocc.fs[k] <- sum(z[,k])       # Number of occupied sites among the 267
+#}
+for (i in 1:nsite){
+   Nsite[i] <- sum(z[i,])          # Number of occurring species at each site
+}
+n0 <- sum(w[(nspec+1):(nspec+nz)]) # Number of unseen species
+Ntotal <- sum(w[])                 # Total metacommunity size
+
+# Vectors to save (S for ?save?; discard posterior samples for
+# all minus 1 of the potential species to save disk space)
+# we do this for nz = 250 (i.e., M = 395)
+# lpsiS[1:(nspec+1)] <- lpsi[1:(nspec+1)]
+# betalpsi1S[1:(nspec+1)] <- betalpsi1[1:(nspec+1)]
+# betalpsi2S[1:(nspec+1)] <- betalpsi2[1:(nspec+1)]
+# betalpsi3S[1:(nspec+1)] <- betalpsi3[1:(nspec+1)]
+# lpS[1:(nspec+1)] <- lp[1:(nspec+1)]
+# betalp1S[1:(nspec+1)] <- betalp1[1:(nspec+1)]
+# betalp2S[1:(nspec+1)] <- betalp2[1:(nspec+1)]
+# betalp3S[1:(nspec+1)] <- betalp3[1:(nspec+1)]
+}
+",fill = TRUE)
+sink()
+
+# Initial values
+wst <- rep(1, nspec+nz)   # Simply set everybody at occurring
+zst <- array(1, dim = c(nsite, nspec+nz)) # ditto
+inits <- function() list(z = zst, w = wst, lpsi = rnorm(n = nspec+nz), betalpsi1 = rnorm(n = nspec+nz), betalpsi2 = rnorm(n = nspec+nz), betalpsi3 = rnorm(n = nspec+nz), lp = rnorm(n = nspec+nz), betalp1 = rnorm(n = nspec+nz), betalp2 = rnorm(n = nspec+nz), betalp3 = rnorm(n = nspec+nz))
+
+# Set 1
+params1 <- c("omega", "mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "mu.lp", "sd.lp", "mu.betalp1", "sd.betalp1", "mu.betalp2", "sd.betalp2", "mu.betalp3", "sd.betalp3", "Ntotal", "Nsite")
+
+# MCMC settings
+ni <- 30000   ;   nt <- 10   ;   nb <- 10000   ;   nc <- 3
+
+# Run JAGS, check convergence and summarize posteriors
+DR_psi._p.method_partA <- jagsUI::jags(win.data, inits, params1, 
+               "scripts/DR_psi._p.method.txt", 
+               n.chains = nc, n.thin = nt, n.iter = ni, 
+               n.burnin = nb, parallel = TRUE)
+DR_psi._p.method_partA
+dev.new(6,6); plot(DR_psi._p.method_partA)
+
+par(mfrow = c(2, 2))
+jagsUI::traceplot(DR_psi._p.method_partA, c(c("omega", "mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "mu.lp", "sd.lp", "mu.betalp1", "sd.betalp1", "mu.betalp2", "sd.betalp2", "mu.betalp3", "sd.betalp3", "Ntotal")) )
+# saveRDS(DR_psi._p.method_partA,
+#         "output/DR_psi._p.method_partA2.rds")
+
+# or load finished model from here to save time
+DR_psi._p.method_partA <-
+  readRDS("output/DR_psi._p.method_partA2.rds")
+
+# Set 2
+params2 <- c("mu.lpsi", "sd.lpsi", "mu.betalpsi1", "sd.betalpsi1", "mu.betalpsi2", "sd.betalpsi2", "mu.betalpsi3", "sd.betalpsi3", "lpsi", "betalpsi1", "betalpsi2", "betalpsi3", "lp", "betalp1", "betalp2", "betalp3", "z", "w")
+ni <- 30000   ;   nt <- 10   ;   nb <- 10000   ;   nc <- 3
+DR_psi._p.method_partB <- jagsUI::jags.basic(win.data, inits, params2, "scripts/DR_psi._p.method.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
+# saveRDS(DR_psi._p.method_partB,
+#         "output/DR_psi._p.method_partB2.rds")
+
+# or load finished model from here to save time
+DR_psi._p.method_partB <-
+  readRDS("output/DR_psi._p.method_partB2.rds")
+
+# summary(DR_psi._p.method_partB)            # May take a loooong time
+# gelman.diag(DR_psi._p.method_partB)        # ditto
+
+# look at parameter estimates
+DR_psi._p.method_partA$summary[1:17,c(1:3, 7)]
+
+out10 <- DR_psi._p.method_partA
+
+# # Visualize covariate mean relationships for the average species
+# # Get covariate values for prediction
+# o.method <- c(1,0)               
+
+# # Predict mean occupancy and also detection by method
+# # Put all predictions into a single object
+# str( tmp <- out10$sims.list )              # grab MCMC samples
+# nsamp <- length(tmp[[1]])    # number of mcmc samples
+# predC <- array(NA, dim = c(2, nsamp, 2)) # "C" for 'community mean'
+# for(i in 1:nsamp){
+#   predC[,i,1] <- plogis(tmp$mu.lpsi[i])
+#   predC[,i,2] <- plogis(tmp$mu.lp[i] + tmp$mu.betalp1[i] * o.method)
+# }
+
+# Get posterior means and 95% CRIs and plot (Fig. 11?17)
+# pmC <- apply(predC, c(1,3), mean)
+# criC <- apply(predC, c(1,3), function(x) quantile(x, prob = c(0.025, 0.975)))
+# 
+# # these are the "community mean" psi and p
+# mean_preds <-
+#   data.frame(
+#     metric = c(
+#       "mean occupancy",
+#       "Roller",
+#       "Soil"
+#     ),
+#     mean = c(pmC[1, 1], pmC[, 2]),
+#     q2.5 = c(criC[1, 1, 1], criC[1, , 2]),
+#     q97.5 = c(criC[2, 1, 1], criC[2, , 2])
+#   )
+
+```
+# Create Fig. 4 - DR community occupancy plot
+```{r}
+# load Part A of model run
+DR_psi._p.method_partA <-
+  readRDS("output/DR_psi._p.method_partA2.rds")
+
+# load Part B of model run
+DR_psi._p.method_partB <-
+  readRDS("output/DR_psi._p.method_partB2.rds")
+
+# Put output from 3 chains into a matrix
+all10 <- as.matrix(DR_psi._p.method_partB)
+str(all10)                    # look at the MCMC output
+
+# Get posterior means and 95% CRIs
+pm <- apply(all10, 2, mean)
+cri <- apply(all10, 2, function(x) quantile(x, prob = c(0.025, 0.975))) 
+
+p_roller_mat <- matrix(NA, ncol = 16, nrow = 6000)
+p_soil_mat <- matrix(NA, ncol = 16, nrow = 6000)
+psi_mat <- matrix(NA, ncol = 16, nrow = 6000)
+for(i in 1:16){
+  betalp1 <- all10[,i]
+  lp <- all10[,i+41]
+  lpsi <- all10[,i+81]
+  p_roller_mat[,i] <- plogis(lp + betalp1)
+  p_soil_mat[,i] <- plogis(lp)
+  psi_mat[,i] <- plogis(lpsi)
+}
+
+# p Beta plot data for
+naive_occ <- apply(apply(m_sp_detnon[, , c(1,3,5:12,14:15,18:21)], c(1, 3), max, na.rm = T), 2, sum)/21
+
+sp_beta_plot <- data.frame(par = names(pm)[1:16], beta = pm[1:16],
+           beta_q2.5 = cri[1,][1:16],
+           beta_q97.5 = cri[2,][1:16],
+           p_roller = apply(p_roller_mat, 2, mean),
+           p_roller_q2.5 = 
+             apply(p_roller_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
+           p_roller_q97.5 = 
+             apply(p_roller_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,],
+           p_soil = apply(p_soil_mat, 2, mean),
+           p_soil_q2.5 = 
+             apply(p_soil_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
+           p_soil_q97.5 = 
+             apply(p_soil_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,],
+           psi = apply(psi_mat, 2, mean),
+           psi_q2.5 = 
+             apply(psi_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[1,],
+           psi_q97.5 = 
+             apply(psi_mat, 2, function(x) quantile(x, prob = c(0.025, 0.975)))[2,]) %>%
+  mutate(species = colnames(m_sp)[c(1,3,5:12,14:15,18:21)+4]) %>%
+  mutate(species = gsub(species, 
+                        pattern = "_", replacement = " ")) %>%
+  mutate(species = forcats::fct_reorder(species, p_roller),
+         naive_occ = naive_occ,
+         arboreal = c("*", "*", "", "", "", "", "*", "", 
+                      "*", "*", "*", "*", "", "", "*", ""),
+         species = paste0(species, arboreal),
+         species = forcats::fct_reorder(species, p_roller))
+
+# Plot effect size of roller vs. soil by species
+(beta_plot <- sp_beta_plot %>%
+  ggplot() +
+  geom_vline(xintercept = DR_psi._p.method_partA$summary[6,1],
+             color = "red") +
+  geom_vline(xintercept = DR_psi._p.method_partA$summary[6,c(3)],
+             color = "red", lty = 2) +
+  geom_vline(xintercept = DR_psi._p.method_partA$summary[6,c(7)],
+             color = "red", lty = 2) +
+  geom_errorbar(aes(xmin = beta_q2.5, 
+                    xmax = beta_q97.5, y = species),
+                width = 0, color = "black", size = .75) +
+  geom_point(aes(x = beta, y = species), size = 3.5) +
+  geom_vline(xintercept = 0, lty = 3) +
+  theme_bw() +
+  theme(text = element_text(size = 15)) +
+  labs(x = sprintf('\U03B2 (roller vs. soil)'), y = "")
+)
+
+# ggsave("figures/roller_vs_soil_effect_size3.png", height = 5,
+#        width = 7, dpi = 400)
+
+# Plot phat for roller vs. soil by species
+sp_p_plot <- sp_beta_plot %>%
+  select(species, starts_with("p_r")) %>%
+  rename(p_soil = p_roller, p_soil_q2.5 = p_roller_q2.5,
+         p_soil_q97.5 = p_roller_q97.5) %>%
+  bind_rows(select(sp_beta_plot, species, starts_with("p_s"))) %>%
+  rename(p = 2, q2.5 = 3, q97.5 = 4) %>%
+  mutate(Method = c(rep("Roller", 16), rep("Soil", 16)))
+
+(p_plot <- sp_p_plot %>%
+  ggplot() +
+  geom_errorbar(aes(xmin = q2.5, 
+                    xmax = q97.5, y = species, color = Method),
+                width = 0, size = .75,
+             position = position_dodge(width = .75)) +
+  geom_point(aes(x = p, y = species, shape = Method), 
+             size = 3.5, fill = "white",
+             # color = sp_p_plot$soil_color,
+             position = position_dodge(width = .75)) +
+  scale_shape_manual(values = c(16, 21)) +
+  scale_color_manual(values = c("black", "black")) +
+  #cowplot::theme_cowplot() +
+  theme_bw() +
+  theme(text = element_text(size = 15),
+        legend.position = c(0.81,0.13),
+        legend.background = element_rect(color = "black"),
+        axis.text.y = element_blank()) +
+  labs(x = "Detection probability", y = "")
+)
+
+# ggsave("figures/roller_vs_soil_p.png", height = 5,
+#        width = 7, dpi = 400)
+
+# version without psi included
+dev.new(width = 7, height = 5)
+the_plot <- gridExtra::grid.arrange(beta_plot, p_plot, ncol = 2)
+# ggsave("figures/Fig4_occ_plot5e.png", plot = the_plot, width = 7, height = 5, dpi = 400)
+```
+# Create Fig. 5 (left panel) - cumulative detection probability of flying squirrel, metabarcoding
+Note: currently, to run this, you need to first create p_roller_mat etc up in the chunk where the detection probabilities are plotted by species.
+```{r}
+roller_cumulative = matrix(NA, nrow = 6000, ncol = 15)
+niter = 6000
+for(i in 1:niter){
+  for(j in 1:15){
+  roller_cumulative[i,j] <- 1-(1-p_roller_mat[i,9])^j
+  }
+}
+
+soil_cumulative = matrix(NA, nrow = 6000, ncol = 15)
+niter = 6000
+for(i in 1:niter){
+  for(j in 1:15){
+  soil_cumulative[i,j] <- 1-(1-p_soil_mat[i,9])^j
+  }
+}
+
+fs_soil_roller <- 
+apply(roller_cumulative, 2, 
+      function(x) quantile(x, c(0.025, 0.1, 0.5, 0.9, 0.975))) %>%
+  cbind(apply(soil_cumulative, 2, 
+      function(x) quantile(x, c(0.025, 0.1, 0.5, 0.9, 0.975)))) %>%
+  t() %>%
+  as.data.frame() %>%
+  rename(q2.5 = 1, q10 = 2, med = 3, q90 = 4, q97.5 = 5) %>%
+  mutate(Method = c(rep("Roller\n(metabarcoding)", 15), rep("Soil\n(metabarcoding)", 15)),
+         n = c(1:15, 1:15))
+
+(flying_squirrel <- 
+    fs_soil_roller %>%
+  ggplot() +
+  geom_hline(yintercept = 0.95, lty = 2, 
+             color = "darkgray") +
+  geom_line(aes(x = n, y = med, lty = Method),
+            size = .75) +
+  geom_ribbon(aes(x = n, ymin = q2.5, ymax = q97.5,
+                  group = Method), 
+              alpha = 0.25, fill = "darkgray") +
+  # geom_ribbon(aes(x = n, ymin = q10, ymax = q90,
+  #                 group = Method), 
+  #             alpha = 0.25, fill = "darkgray") +
+  theme_bw() +
+  theme(text = element_text(size = 14),
+        legend.position = c(.7, 0.15),
+        legend.background = element_rect(fill = "transparent")) +
+  scale_x_continuous(breaks = seq(2, 14, 2)) +
+  scale_y_continuous(limits = c(0,1)) +
+  labs(y = "Cumulative detection probability",
+       x = "Number of sampling visits",
+       title = "Southern Flying Squirrel",
+       fill = "",
+       lty = "")
+)
+
+# ggsave("figures/flysquirrel_cumulative_p.png", 
+#        width = 4, height = 4,
+#        dpi = 400)
+
+```
+# Get information for Table S2 
+how many trees (and visits per tree) for each method
+```{r}
+sites <- read.csv("data/sites.csv")
+
+s <- m_sp %>%
+  left_join(sites)
+
+s %>%
+  group_by(loc, method) %>%
+  summarise(across(American_Red_Squirrel:`Yellow-rumped_Warbler`, list(mean, length, function(x) 100*sum(x>0)/length(x)))) %>%
+  t()
+
+# how many trees (and visits per tree) for each method
+table(s$loc, s$site)
 ```
 # Data formatting for multi-method occupancy modeling in JAGS
 qPCR vs. metabarcoding
@@ -1521,6 +1412,104 @@ write.csv(test_roll, "output/roll_sum_reads.csv")
 
 test_roll[is.na(test_soil)==F]
 test_roll[test_roll==0]
+```
+# Create Fig. S1.
+Code modified from:
+https://rstudio-pubs-static.s3.amazonaws.com/694016_e2d53d65858d4a1985616fa3855d237f.html
+```{r}
+# load packages
+library(vegan)
+library(BiodiversityR)
+
+# create df from which to make community-by-species matrix
+m_sp_mean <- m_sp %>%
+  group_by(site) %>%
+  select_if(is.numeric) %>%
+  summarize_all(mean) %>%
+  select(-samp_num)
+
+# remove observations with no species detected
+m_sp_mean_no_blanks <-
+  m_sp_mean[rowSums(m_sp_mean[,2:ncol(m_sp_mean)])>0,] %>%
+  mutate(tree = paste0("T", substr(site, 2,3)),
+         method = 
+           substr(m_sp_mean[rowSums(m_sp_mean[,2:ncol(m_sp_mean)])>0,]$site,1,1)) %>%
+  left_join(select(samps2, tree, Location)) %>%
+  rename(Method = method, Site = Location) %>%
+  mutate(Method = case_when(Method == "R" ~ "Roller",
+                            TRUE ~ "Soil"), 
+         Site = case_when(Site == "Morristown" ~ "Morristown",
+                            TRUE ~ "Rutgers"), )
+env.data <- m_sp_mean_no_blanks %>%
+  select("tree":"Site")
+
+# create community-by-species matrix
+m_sp_mean_no_blanks_mat <- m_sp_mean_no_blanks %>%
+  select("American_Red_Squirrel":"Yellow-rumped_Warbler") %>%
+  as.matrix()
+
+# subset community-by-species matrix to just mammals
+m_sp_mean_no_blanks_mat_mam <- 
+  m_sp_mean_no_blanks_mat[,c(1,3,5,6,7,8,9,10,11,12,14,15,18,19,20,21)]
+
+# run NMDS
+mammal_NMDS=metaMDS(m_sp_mean_no_blanks_mat_mam, 
+                    # Our community-by-species matrix (just mammals)
+                     k=2, distance = 'bray', trymax = 100) 
+# k = number of reduced dimensions. Increase if high stress is problem. 
+
+# format NMDS results for plotting
+plot1 <- ordiplot(mammal_NMDS, choices = c(1, 2))
+sites.long1 <-
+  BiodiversityR::sites.long(plot1, env.data = env.data) %>%
+  mutate(axis1 = as.numeric(axis1),
+         axis2 = as.numeric(axis2),
+         order = case_when(Site == "Rutgers" ~ 1,
+                           TRUE ~ 2),
+         Site = forcats::fct_reorder(Site, order))
+head(sites.long1)
+str(sites.long1)
+
+# create ellipses
+  veganCovEllipse<-function (cov, center = c(0, 0), scale = 1, npoints = 100) 
+  {
+    theta <- (0:npoints) * 2 * pi/npoints
+    Circle <- cbind(cos(theta), sin(theta))
+    t(center + scale * t(Circle %*% chol(cov)))
+  }
+  df_ell <- data.frame()
+  for(g in levels(as.factor(sites.long1$Site))){
+    df_ell <- rbind(df_ell, cbind(as.data.frame(with(sites.long1[sites.long1$Site==g,],
+                    veganCovEllipse(cov.wt(cbind(axis1,axis2),wt=rep(1/length(axis1),length(axis1)))$cov,center=c(mean(axis1),mean(axis2)))))
+                    ,Site=g))
+  }
+# make the plot
+(nmds_plot <- ggplot(sites.long1) +
+  geom_vline(xintercept = c(0),
+             color = "grey70",
+             linetype = 2) +
+  geom_hline(yintercept = c(0),
+             color = "grey70",
+             linetype = 2) +     
+  xlab("NMDS1") +
+  ylab("NMDS2") +
+  scale_x_continuous(sec.axis = dup_axis(labels = NULL, name = NULL)) +
+  scale_y_continuous(sec.axis = dup_axis(labels = NULL, name = NULL)) +
+  geom_point(aes(
+    x = axis1,
+    y = axis2,
+    shape = Method,
+    color = Site
+  ),
+  size = 5) +
+    geom_path(data=df_ell, aes(x=axis1, y=axis2, color = Site), size=1, linetype=2)+
+  theme_bw() +
+  theme(text = element_text(size = 14)) +
+  scale_color_manual(values = c("firebrick", "steelblue")) +
+  coord_fixed(ratio = 1)
+)
+ggsave("figures/FigS1_reads_ordination_by_method_site.png", 
+       height = 6, width = 6, dpi = 400)
 ```
 # Community occupancy model on reduced data set (1:1 roller/soil samples)
 Community occupancy model on only mammals, omitting any roller samples that do not have a corresponding soil sample. Code adapted from Kery and Royle, AMH 1 book, section 11.7.2.
