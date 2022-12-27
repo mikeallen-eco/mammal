@@ -52,14 +52,5 @@ for(i in 1:30){
 p_tree_qpcr_roller[i] <- (1 - (1 - p.qpcr * theta.roller)^i)
 }
 
-
-# 
-# # visits required to reach 95% certainty of detect at occ trees
-# still unmodified from vineyard SLF analysis
-# n_eDNA_r1 <- log(20) / (-log(1 - p.eDNA * theta.round1))
-# n_eDNA_r2 <- log(20) / (-log(1 - p.eDNA * theta.round2))
-# n_vis_r1 <- log(20) / (-log(1 - p.vis * theta.round1))
-# n_vis_r2 <- log(20) / (-log(1 - p.vis * theta.round2))
-
 }
 
