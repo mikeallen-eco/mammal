@@ -7,8 +7,8 @@ output: html_document
 # Introduction
 This code can be used to reproduce all analysis and figures in the manuscript entitled: "Sampling environmental DNA from trees and soil to detect cryptic arboreal mammals". 
 
-The preprint can be found here:
-https://doi.org/10.21203/rs.3.rs-1862862/v1 
+The paper can be found here:
+https://doi.org/10.1038/s41598-023-27512-8
 
 # Load libraries and data, and format data for analysis
 Some data formatting code adapted from Kery and Royle (2015) Applied Hierarchical Modeling.
